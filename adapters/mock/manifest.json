@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "mock",
+  "name": "SDK Mock Adapter",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minHostVersion": "0.1.0",
+  "entry": "index.js",
+  "permissions": {
+    "http": [],
+    "session": []
+  },
+  "auth": {
+    "loginUrl": "https://example.invalid/login",
+    "allowedOrigins": [],
+    "sessionCookies": []
+  }
+}

@@ -1,3 +1,4 @@
+mod adapters;
 mod commands;
 mod models;
 mod notifications;
@@ -105,6 +106,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
+            commands::list_adapters,
+            commands::run_adapter_smoke,
             commands::open_login,
             commands::close_login,
             commands::finish_login,

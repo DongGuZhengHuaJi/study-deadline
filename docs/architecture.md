@@ -17,7 +17,8 @@ Rust Core
   ├─ state            全局状态、Dashboard、同步状态
   ├─ refresh          拉取编排与部分失败策略
   ├─ scheduler        3 秒首刷 + 分钟级提醒循环
-  ├─ yuketang         内置平台适配器
+  ├─ yuketang         内置雨课堂适配器
+  ├─ adapters         QuickJS SDK 运行时 + manifest + mock 包
   ├─ storage          SQLite 任务/账号/设置/通知
   ├─ secret           keyring 主密钥 + AES-256-GCM 会话
   ├─ notifications    阈值去重与系统通知
@@ -115,19 +116,20 @@ SQLite 表：
 
 ## 8. 当前不足与演进
 
-1. **SDK 未落地**：没有动态插件加载、签名目录和版本回滚；新增平台仍需改 Rust。
+1. **SDK 仍不完整**：QuickJS 运行时、manifest 和 mock 已落地；签名安装、远程目录、
+   版本回滚和雨课堂迁移仍未完成。
 2. **Windows/macOS 未验收**：代码跨平台，但只在 Linux X11 实机上传过完整链路。
 3. **任务深链**：目前稳定到课程详情页，尚未生成具体叶子/作业深链。
 4. **系统浏览器不共享会话**：跨应用 Cookie 共享不做，避免安全风险和浏览器差异。
 5. **日志轮转、SQLite 备份/修复**：尚未完成生产级完善。
 6. **自动更新**：未实现；适配器热更新更是之后的里程碑。
+7. **SDK 运行时路径**：当前 mock 由 `adapters/runtime.rs` 执行，雨课堂仍未迁移。
 
 适配器迁移路线：
 
 ```text
-内置 Rust（当前）
-  → 统一 adapter manifest + 包格式
-  → QuickJS 受控运行时 + 本地安装
-  → Ed25519 签名 + 版本兼容 + 回滚
+内置 Rust + mock QuickJS（当前）
+  → 雨课堂迁移到 QuickJS 包
+  → Ed25519 签名 + 本地安装 + 版本兼容 + 回滚
   → 远程签名目录 + 第二个平台
 ```

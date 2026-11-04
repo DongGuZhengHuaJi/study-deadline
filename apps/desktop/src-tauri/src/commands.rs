@@ -1,3 +1,4 @@
+use crate::adapters::{self, manifest::AdapterInfo, AdapterSmokeResult};
 use crate::models::{Dashboard, Session, Settings};
 use crate::refresh;
 use crate::state::AppState;
@@ -16,6 +17,31 @@ pub const LOGIN_LABEL: &str = "login-yuketang";
 #[tauri::command]
 pub async fn bootstrap(state: State<'_, AppState>) -> Result<Dashboard, String> {
     state.dashboard()
+}
+
+#[tauri::command]
+pub async fn list_adapters(app: AppHandle) -> Result<Vec<AdapterInfo>, String> {
+    Ok(adapters::list_builtin(&app))
+}
+
+#[tauri::command]
+pub async fn run_adapter_smoke(app: AppHandle) -> Result<AdapterSmokeResult, String> {
+    let adapter = adapters::load_mock(&app)?;
+    let adapter_id = adapter.manifest.id.clone();
+    let adapter_version = adapter.manifest.version.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        adapters::runtime::run_adapter(&adapter, None, "sdk-smoke")
+    })
+    .await
+    .map_err(|error| format!("适配器线程失败: {error}"))?
+    .map_err(|error| error.to_string())?;
+    Ok(AdapterSmokeResult {
+        adapter_id,
+        adapter_version,
+        complete: snapshot.complete,
+        task_count: snapshot.tasks.len(),
+        task_titles: snapshot.tasks.into_iter().map(|task| task.title).collect(),
+    })
 }
 
 fn is_yuketang_cookie(domain: Option<&str>) -> bool {

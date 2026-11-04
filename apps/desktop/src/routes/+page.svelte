@@ -48,6 +48,21 @@
   };
 
   type Region = { id: string; label: string; base_url: string };
+  type AdapterInfo = {
+    id: string;
+    name: string;
+    version: string;
+    api_version: number;
+    source: string;
+    path: string;
+  };
+  type AdapterSmokeResult = {
+    adapter_id: string;
+    adapter_version: string;
+    complete: boolean;
+    task_count: number;
+    task_titles: string[];
+  };
   type Dashboard = {
     tasks: Task[];
     account: Account | null;
@@ -71,6 +86,10 @@
   let showLogs = $state(false);
   let logLoading = $state(false);
   let logText = $state("");
+  let adapters = $state<AdapterInfo[]>([]);
+  let sdkBusy = $state(false);
+  let sdkError = $state("");
+  let sdkSmoke = $state<AdapterSmokeResult | null>(null);
   let initialized = false;
 
   const kindLabels: Record<string, string> = {
@@ -115,6 +134,7 @@
     let unlistenSettings: UnlistenFn | undefined;
 
     void loadDashboard();
+    void loadAdapters();
     void (async () => {
       unlistenState = await listen("state-changed", () => {
         void loadDashboard();
@@ -367,6 +387,29 @@
       notice = `退出失败: ${String(error)}`;
     } finally {
       busy = "";
+    }
+  }
+
+  async function loadAdapters() {
+    try {
+      adapters = await invoke<AdapterInfo[]>("list_adapters");
+      sdkError = "";
+    } catch (error) {
+      sdkError = `读取适配器失败: ${String(error)}`;
+    }
+  }
+
+  async function runSdkSmoke() {
+    if (sdkBusy) return;
+    sdkBusy = true;
+    sdkError = "";
+    sdkSmoke = null;
+    try {
+      sdkSmoke = await invoke<AdapterSmokeResult>("run_adapter_smoke");
+    } catch (error) {
+      sdkError = `SDK 自检失败: ${String(error)}`;
+    } finally {
+      sdkBusy = false;
     }
   }
 
@@ -691,6 +734,49 @@
             {#if dashboard?.sync.last_error}
               <div class="banner error" style="margin-top:12px; margin-bottom:0;">
                 {dashboard.sync.last_error}
+              </div>
+            {/if}
+          </section>
+
+          <section class="settings-card full">
+            <h2>适配器 SDK（运行时预览）</h2>
+            <div class="account-meta">
+              当前版本已接入 QuickJS 受控运行时和 manifest 加载。雨课堂仍走内置 Rust 适配器；
+              签名安装与远程热更新尚未启用。
+            </div>
+            <div style="display:grid; gap:6px; margin-top:10px;">
+              {#each adapters as adapter (adapter.id)}
+                <div class="setting-row">
+                  <span>
+                    <strong>{adapter.name}</strong>
+                    <span class="setting-hint">
+                      {adapter.id} · v{adapter.version} · API v{adapter.api_version} · {adapter.source}
+                    </span>
+                  </span>
+                  <span class="account-meta">manifest OK</span>
+                </div>
+              {:else}
+                <div class="account-meta">没有找到内置适配器包。</div>
+              {/each}
+            </div>
+            <div class="settings-actions">
+              <button class="ghost" disabled={sdkBusy} onclick={runSdkSmoke}>
+                {sdkBusy ? "运行中…" : "运行 mock 自检"}
+              </button>
+              <button class="ghost" disabled={sdkBusy} onclick={loadAdapters}
+                >重新扫描</button
+              >
+            </div>
+            {#if sdkError}
+              <div class="banner error" style="margin:10px 0 0;">{sdkError}</div>
+            {/if}
+            {#if sdkSmoke}
+              <div class="banner" style="margin:10px 0 0;">
+                SDK 自检成功：{sdkSmoke.adapter_id} v{sdkSmoke.adapter_version} 返回
+                {sdkSmoke.task_count} 个任务（complete={String(sdkSmoke.complete)}）。
+                {#if sdkSmoke.task_titles.length > 0}
+                  标题：{sdkSmoke.task_titles.join("、")}
+                {/if}
               </div>
             {/if}
           </section>

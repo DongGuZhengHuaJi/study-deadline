@@ -20,10 +20,10 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 | 项目 | 状态 |
 |---|---|
 | Linux 桌面 | 已在本机编译、安装、真实登录和任务拉取验证 |
-| Windows 10/11 | 代码保持 Tauri 跨平台，但尚未在 Windows 实机发布验收 |
+| Windows 10/11 | 用户已完成实机验收（NSIS 安装版登录、拉取、托盘等）；签名/正式发布仍待办 |
 | macOS | 路线图；需要 Apple 签名/公证 |
 | 雨课堂适配器 | 当前为内置 Rust 适配器 |
-| 外部 SDK / 签名热更新 | 规范已编写，运行时尚未实现，见 [适配器 SDK 规范](docs/adapter-sdk.md) |
+| 适配器 SDK | QuickJS 运行时 + manifest + mock 包已实现；签名安装、远程热更新、雨课堂迁移待完成，见 [SDK 规范](docs/adapter-sdk.md) |
 | 任务点击 | 使用系统浏览器打开课程详情；不注入/共享系统浏览器 Cookie |
 | CI / CD | GitHub Actions 覆盖 Linux/Windows/macOS 检查与安装包构建，见 [CI/CD](docs/ci-cd.md) |
 
@@ -35,8 +35,9 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 - **只读拉取**：当前学期课程列表 → 课程进度树 → 作业/考试/测验截止时间；考试预告去重
 - **提醒**：24h / 6h / 1h / 10m 阈值，系统通知；失败时保留旧任务并按刷新间隔重试
 - **托盘**：显示/隐藏、立即刷新、设置、退出
-- **设置**：刷新间隔、系统通知、开机启动（仅发布版）、窗口置顶、账号管理、日志查看
+- **设置**：刷新间隔、系统通知、开机启动（仅发布版）、窗口置顶、账号管理、日志查看、适配器 SDK 自检
 - **工程能力**：SQLite 缓存、敏感字段脱敏日志、单实例、关闭到托盘、Linux deb 打包
+- **SDK 预览**：QuickJS 受控运行时、manifest 校验、内置 mock 适配器与设置页自检
 
 ## 截图
 
@@ -168,7 +169,7 @@ Linux 数据位置：
 - 任务链接打开系统浏览器；跨应用共享 Cookie 不做，也不建议通过浏览器扩展窃取会话。
 - 考试子域有独立会话；当前不读取考试内容，只展示主站可获得的考试元数据。
 - Linux Wayland 下置顶/绝对定位受合成器限制；本项目主要验证 X11。
-- Windows 通知、开机启动、托盘和多显示器尚未完成正式验收。
+- Windows 实机验收已由用户完成；正式签名安装包仍待发布。
 - 系统通知在 Linux 上依赖桌面通知服务；安装/权限差异可能导致不显示。
 
 ## Roadmap
@@ -178,9 +179,10 @@ Linux 数据位置：
 - [x] Linux deb 发布构建
 - [x] GitHub Actions CI（Linux/Windows/macOS 检查）
 - [x] GitHub Actions CD（Linux deb / Windows NSIS / macOS DMG；不签名）
-- [ ] Windows 实机通知/开机启动验收
-- [ ] 外部适配器 SDK：manifest、权限、QuickJS 受控运行时
-- [ ] 签名包安装、版本兼容、回滚和远程目录
+- [x] Windows 实机验收（用户）
+- [x] 适配器 SDK 运行时（QuickJS + manifest + mock 自检）
+- [ ] 签名适配器安装、版本兼容、回滚和远程目录
+- [ ] 把雨课堂迁移为第一个外部适配器包
 - [ ] 任务叶子深链（减少从课程页再跳转）
 - [ ] macOS 签名/公证与 Linux Wayland 适配
 
