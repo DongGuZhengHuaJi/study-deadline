@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "chaoxing",
+  "name": "学习通",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minHostVersion": "0.1.0",
+  "entry": "index.js",
+  "keyId": "dev-2026",
+  "sequence": 1,
+  "permissions": {
+    "http": [
+      "https://*.chaoxing.com/*"
+    ],
+    "session": [
+      "cookie:_uid",
+      "cookie:UID",
+      "cookie:_d",
+      "cookie:vc3",
+      "cookie:uf",
+      "cookie:fid",
+      "cookie:p_auth_token",
+      "cookie:cx_p_token",
+      "cookie:xxtenc"
+    ]
+  },
+  "auth": {
+    "loginUrl": "https://passport2.chaoxing.com/login?fid=&refer=https%3A%2F%2Fi.chaoxing.com",
+    "baseUrl": "https://i.chaoxing.com",
+    "allowedOrigins": [
+      "https://*.chaoxing.com"
+    ],
+    "successUrlPatterns": [
+      "i.chaoxing.com/base"
+    ],
+    "sessionCookies": [
+      "_uid",
+      "UID",
+      "_d",
+      "vc3",
+      "uf",
+      "fid",
+      "p_auth_token",
+      "cx_p_token",
+      "xxtenc"
+    ],
+    "requiredAnyCookies": [
+      "_uid",
+      "UID"
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 
 本文描述当前 `v0.1.0` 的实际实现，以及后续适配器 SDK 的接入位置。
 产品边界和风险说明见根目录 [README](../README.md)，平台接口见
-[雨课堂接口文档](platform/yuketang.md)。
+[雨课堂接口文档](platform/yuketang.md) 与 [学习通接口文档](platform/chaoxing.md)。
 
 ## 1. 总览
 
@@ -17,8 +17,8 @@ Rust Core
   ├─ state            全局状态、Dashboard、同步状态
   ├─ refresh          拉取编排与部分失败策略
   ├─ scheduler        3 秒首刷 + 分钟级提醒循环
-  ├─ yuketang         内置雨课堂适配器
-  ├─ adapters         QuickJS SDK 运行时 + yuketang/mock 包 + 签名安装
+  ├─ platform         平台常量、UA 与雨课堂区域列表
+  ├─ adapters         QuickJS SDK 运行时 + yuketang/chaoxing/mock 包 + 签名安装
   ├─ storage          SQLite 任务/账号/设置/通知
   ├─ secret           keyring 主密钥 + AES-256-GCM 会话
   ├─ notifications    阈值去重与系统通知
@@ -36,11 +36,18 @@ Rust Core
 3. 从 OS 凭据库取 32 字节主密钥，逐个解密账号会话；凭据库不可用时会话只在内存中。
 4. 创建托盘。托盘创建失败时会关闭“跳过任务栏”，避免窗口无法找回。
 5. 启动调度器；若已有有效会话，约 3 秒后自动刷新。
-6. 用户点击登录时，打开独立登录 WebView（label `login-yuketang`）：
-   - 只允许 HTTPS；
+6. 用户点击登录时，打开独立登录 WebView（label `login`）：
+   - 平台和区域/入口由适配器 manifest 的 `auth` 生成；
+   - 只允许 HTTPS；学校 SSO/CAS 可离开平台域名；
    - 不匹配任何应用 capability，远程页面无法调用应用命令；
-   - 登录成功后，用 Tauri Rust Cookie API 在窗口存活时读取会话 Cookie。
-7. 用一次只读课程列表请求验证会话；成功后才保存账号、加密会话和任务。
+   - 登录窗口使用 incognito/临时配置，避免上次登录的 `route`/session Cookie
+     造成平台跳转循环；Linux 上还会把 WebKitGTK 的 Cookie 接受策略设为
+     `ACCEPT_ALWAYS`，否则默认的 `NO_THIRD_PARTY` 可能打断学习通
+     passport2 → SSO → `i.chaoxing.com` 的跳转链；
+   - 登录成功后，用 Tauri Rust Cookie API 在窗口存活时读取会话 Cookie，
+     并按 manifest 的 `permissions.http` 域名过滤（不读取学校 IdP Cookie）；
+     会话加密存储，登录 WebView 不保留 Cookie。
+7. 用适配器的一次只读拉取验证会话；成功后才保存账号、加密会话和任务。
 
 会话加密：
 
@@ -59,9 +66,11 @@ SQLite 表：
 | `tasks` | 归一化任务快照 |
 | `notifications` | `(task_id, threshold_minutes)` 去重 |
 
-任务稳定 ID：`yuketang:<account>:leaf:<course_id>:<leafinfo_id>`。
-考试任务使用 `exam:<id>`。ID 只用于本地主键，平台侧去重另用
-`(classroom_id, title, start, due)`。
+任务稳定 ID 由适配器返回的 `remoteId` 派生：
+`<adapter_id>:<account>:<remote_id>`。雨课堂使用
+`leaf:<course_id>:<leafinfo_id>` / `exam:<id>`；学习通使用
+`work:<course_id>:<work_id>` / `exam:<exam_id>`。ID 只用于本地主键，
+平台侧去重另用稳定的平台 ID 或 `(course, title, start, due)`。
 
 完整快照会删除该账号未返回的旧任务；部分失败（`complete=false`）只 upsert，
 保留旧任务。任务不会因为“未返回”被推断为已经提交。
@@ -85,6 +94,15 @@ SQLite 表：
   - 考试预告接口（秒）统一转为毫秒，并与叶子去重；
   - 401/403/3xx 视为会话失效，停止本轮并提示重新登录；
   - 单课程失败返回 `PARTIAL`，保留旧任务。
+- 学习通适配器：
+  - 先请求 `i.chaoxing.com/base` 验活，并解析学校 `fid`；
+  - JSON 课程列表用于课程名和课程页链接；
+  - 待交作业聚合 `work/stu-work` 提供作业列表和相对剩余时间；
+  - 对待交作业的 `data` 详情页做有上限的补充请求，解析绝对截止时间；
+  - 考试列表 `examlist` 一次返回全校考试（绝对起止时间）；
+    为空时回退到 `exam/phone/examcode`（相对时间）；
+  - 学习通页面按北京时间解析，不依赖系统时区；
+  - 作业/考试单源失败时返回 `complete=false`，保留旧任务。
 - 通知阈值默认 `[1440, 360, 60, 10]` 分钟；发送后标记当前和更大的阈值，
   避免应用启动晚时补发一堆通知。
 
@@ -114,29 +132,29 @@ SQLite 表：
 
 - 登录 WebView：无应用 capability、HTTPS 限定；
 - 前端：只有主窗口有 capability；任务标题按文本渲染；
-- 任务 URL：HTTPS + `yuketang.cn` 域校验后才交给系统浏览器；
-- 会话：OS keyring 主密钥 + AES-GCM；凭据库不可用时仅内存；
-- 适配器：雨课堂/mock 当前由 QuickJS 受控运行时执行，Rust 实现保留为回退；
+- 任务 URL：HTTPS + 适配器 manifest 声明的域名（`*.yuketang.cn`、`*.chaoxing.com`）校验后才交给系统浏览器；
+- 会话：OS keyring 主密钥 + AES-GCM；凭据库不可用时仅内存；Cookie 按平台域名过滤；
+- 适配器：雨课堂/学习通/mock 均由 QuickJS 受控运行时执行；适配器缺失时刷新报错并保留旧任务；
   外部 SDK 使用域名白名单 + Ed25519 签名。QuickJS 不是敌对代码强沙箱，
   第三方不受信代码应使用 WASM/独立进程。
 
 ## 8. 当前不足与演进
 
-1. **SDK 仍不完整**：QuickJS 运行时、雨课堂/mock 迁移、manifest、本地签名安装、
+1. **SDK 仍不完整**：QuickJS 运行时、雨课堂/学习通/mock 迁移、manifest、本地签名安装、
    多账号聚合、平台筛选和远程签名 catalog 已落地；生产密钥轮换和自动更新回滚仍未完成。
 2. **Windows/macOS 未验收**：代码跨平台，但只在 Linux X11 实机上传过完整链路。
 3. **任务深链**：目前稳定到课程详情页，尚未生成具体叶子/作业深链。
 4. **系统浏览器不共享会话**：跨应用 Cookie 共享不做，避免安全风险和浏览器差异。
 5. **日志轮转、SQLite 备份/修复**：尚未完成生产级完善。
 6. **自动更新**：适配器远程 catalog 已实现（开发公钥）；主程序自动更新和生产密钥轮换未完成。
-7. **账号登录入口**：多账号状态已实现，但登录 UI 仍固定雨课堂；已安装的其他 adapter
-   还不能直接创建账号，需要把登录流程改为读取 manifest.auth。
+7. **账号登录入口**：已改为读取 manifest.auth，登录 UI 可按平台/入口生成；
+   新平台适配器无需修改前端即可加入。
 
 适配器迁移路线：
 
 ```text
-QuickJS 运行 + 雨课堂/mock 包（当前）
+QuickJS 运行 + 雨课堂/学习通/mock 包（当前）
   → 本地 Ed25519 签名安装（当前）
-  → 账号创建 UI 按 manifest 暴露平台
-  → 远程签名目录（当前）+ 生产密钥 + 自动回滚 + 第二个平台
+  → 账号创建 UI 按 manifest 暴露平台（当前）
+  → 远程签名目录（当前）+ 生产密钥 + 自动回滚
 ```

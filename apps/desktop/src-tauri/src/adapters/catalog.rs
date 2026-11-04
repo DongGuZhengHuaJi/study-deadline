@@ -199,8 +199,20 @@ mod tests {
             .join("../../../adapters/catalog.json");
         let contents = std::fs::read_to_string(path).unwrap();
         let entries = verify_catalog_with_key(&contents, &trusted_key("dev-2026").unwrap()).unwrap();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert!(entries.iter().any(|entry| entry.id == "yuketang"));
+        assert!(entries.iter().any(|entry| entry.id == "chaoxing"));
+
+        // Every repository package must match the hash advertised by the
+        // signed catalog, otherwise the app would reject it after download.
+        let packages = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../adapter-packages");
+        for entry in &entries {
+            let path = packages.join(format!("{}-{}.sdapkg", entry.id, entry.version));
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|error| panic!("读取 {} 失败: {error}", path.display()));
+            assert_eq!(sha256_b64(&bytes), entry.sha256, "{} 哈希不匹配", entry.id);
+        }
     }
 
     #[test]

@@ -2,13 +2,13 @@ mod adapters;
 mod commands;
 mod models;
 mod notifications;
+mod platform;
 mod refresh;
 mod scheduler;
 mod secret;
 mod state;
 mod storage;
 mod tray;
-mod yuketang;
 
 use state::AppState;
 use std::path::PathBuf;

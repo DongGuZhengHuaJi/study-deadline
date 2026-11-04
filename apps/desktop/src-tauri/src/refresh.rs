@@ -1,9 +1,22 @@
 use crate::adapters::{self, runtime::AdapterRunError};
 use crate::models::{FetchSnapshot, Session};
 use crate::state::AppState;
-use crate::yuketang::{self, FetchError};
 use chrono::Utc;
 use tauri::{AppHandle, Emitter, Manager};
+
+#[derive(Debug, thiserror::Error)]
+pub enum FetchError {
+    #[error("登录已失效，请重新登录")]
+    AuthExpired,
+    #[error("请求过于频繁或被平台风控: {0}")]
+    RateLimited(String),
+    #[error("网络请求失败: {0}")]
+    Network(String),
+    #[error("平台数据格式变化: {0}")]
+    Schema(String),
+    #[error("平台适配器不可用，请检查安装或更新: {0}")]
+    AdapterUnavailable(String),
+}
 
 pub fn emit_state_changed(app: &AppHandle) {
     let _ = app.emit("state-changed", ());
@@ -15,32 +28,33 @@ pub async fn fetch_account_snapshot(
     account_id: &str,
     session: &Session,
 ) -> Result<FetchSnapshot, FetchError> {
-    if let Some(adapter) = adapters::load_by_id(app, adapter_id) {
-        let version = adapter.manifest.version.clone();
-        tracing::info!(
-            adapter = %adapter_id,
-            version = %version,
-            account = %account_id,
-            "using SDK adapter runtime"
-        );
-        let session = session.clone();
-        let account_id = account_id.to_string();
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            adapters::runtime::run_adapter(&adapter, Some(&session), &account_id)
-        })
-        .await
-        .map_err(|error| FetchError::Network(format!("适配器线程失败: {error}")))?;
-        return match result {
-            Ok(snapshot) => Ok(snapshot),
-            Err(AdapterRunError::AuthExpired) => Err(FetchError::AuthExpired),
-            Err(AdapterRunError::RateLimited) => {
-                Err(FetchError::RateLimited("SDK adapter rate limited".into()))
-            }
-            Err(AdapterRunError::SchemaChanged(message)) => Err(FetchError::Schema(message)),
-            Err(error) => Err(FetchError::Schema(error.to_string())),
-        };
+    let Some(adapter) = adapters::load_by_id(app, adapter_id) else {
+        return Err(FetchError::AdapterUnavailable(adapter_id.to_string()));
+    };
+    let version = adapter.manifest.version.clone();
+    tracing::info!(
+        adapter = %adapter_id,
+        version = %version,
+        account = %account_id,
+        "using SDK adapter runtime"
+    );
+    let session = session.clone();
+    let account_id = account_id.to_string();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        adapters::runtime::run_adapter(&adapter, Some(&session), &account_id)
+    })
+    .await
+    .map_err(|error| FetchError::Network(format!("适配器线程失败: {error}")))?;
+    match result {
+        Ok(snapshot) => Ok(snapshot),
+        Err(AdapterRunError::AuthExpired) => Err(FetchError::AuthExpired),
+        Err(AdapterRunError::RateLimited) => {
+            Err(FetchError::RateLimited("SDK adapter rate limited".into()))
+        }
+        Err(AdapterRunError::Network(message)) => Err(FetchError::Network(message)),
+        Err(AdapterRunError::SchemaChanged(message)) => Err(FetchError::Schema(message)),
+        Err(error) => Err(FetchError::Schema(error.to_string())),
     }
-    yuketang::fetch_snapshot(session, account_id).await
 }
 
 /// Refresh every account that has a session. Accounts are independent: one

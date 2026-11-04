@@ -41,7 +41,13 @@
     last_error: string | null;
   };
 
-  type Platform = { id: string; name: string; version: string };
+  type Platform = {
+    id: string;
+    name: string;
+    version: string;
+    login_url: string | null;
+    regions: Region[];
+  };
 
   type Sync = {
     refreshing: boolean;
@@ -93,6 +99,7 @@
   let loginFlow = $state(false);
   let loginPending = $state(false);
   let loginTargetId = $state<string | null>(null);
+  let loginAdapterId = $state("yuketang");
   let selectedRegion = $state("www");
   let selectedPlatform = $state("all");
   let consent = $state(false);
@@ -119,6 +126,18 @@
   let showLogin = $derived(
     !loading && ((dashboard?.accounts.length ?? 0) === 0 || loginFlow),
   );
+  let loginPlatforms = $derived(
+    (dashboard?.platforms ?? []).filter(
+      (platform) => platform.login_url && platform.id !== "mock",
+    ),
+  );
+  let loginPlatformInfo = $derived(
+    loginPlatforms.find((platform) => platform.id === loginAdapterId) ??
+      loginPlatforms[0] ??
+      null,
+  );
+  let loginRegions = $derived(loginPlatformInfo?.regions ?? []);
+  let loginPlatformName = $derived(loginPlatformInfo?.name ?? "学习平台");
   let visibleTasks = $derived(
     (dashboard?.tasks ?? []).filter(
       (task) => selectedPlatform === "all" || task.source === selectedPlatform,
@@ -211,7 +230,22 @@
       if (!initialized) {
         initialized = true;
         consent = data.settings.risk_accepted;
-        if (data.accounts.length > 0) selectedRegion = data.accounts[0].region;
+        if (data.accounts.length > 0) {
+          loginAdapterId = data.accounts[0].adapter_id;
+          selectedRegion = data.accounts[0].region;
+        } else {
+          const firstPlatform =
+            (data.platforms ?? []).find(
+              (platform) => platform.id === "yuketang" && platform.login_url,
+            ) ??
+            (data.platforms ?? []).find(
+              (platform) => platform.login_url && platform.id !== "mock",
+            );
+          if (firstPlatform) {
+            loginAdapterId = firstPlatform.id;
+            selectedRegion = firstPlatform.regions[0]?.id ?? "default";
+          }
+        }
       }
       if (
         selectedPlatform !== "all" &&
@@ -313,7 +347,11 @@
   function platformName(adapterId: string): string {
     return (
       dashboard?.platforms.find((platform) => platform.id === adapterId)?.name ??
-      (adapterId === "yuketang" ? "雨课堂" : adapterId)
+      (adapterId === "yuketang"
+        ? "雨课堂"
+        : adapterId === "chaoxing"
+          ? "学习通"
+          : adapterId)
     );
   }
 
@@ -359,6 +397,7 @@
         });
       }
       await invoke("open_login", {
+        adapterId: loginPlatformInfo?.id ?? loginAdapterId,
         regionId: selectedRegion,
         accountId: loginTargetId,
       });
@@ -407,7 +446,11 @@
     loginTargetId = null;
     loginFlow = true;
     loginPending = false;
-    selectedRegion = "www";
+    const platform =
+      loginPlatforms.find((entry) => entry.id === "yuketang") ??
+      loginPlatforms[0];
+    loginAdapterId = platform?.id ?? "yuketang";
+    selectedRegion = platform?.regions[0]?.id ?? "www";
     view = "compact";
     await invoke("set_view", { view: "compact" }).catch(() => {});
   }
@@ -416,9 +459,16 @@
     loginTargetId = account.id;
     loginFlow = true;
     loginPending = false;
+    loginAdapterId = account.adapter_id;
     selectedRegion = account.region;
     view = "compact";
     await invoke("set_view", { view: "compact" }).catch(() => {});
+  }
+
+  function selectLoginPlatform(id: string) {
+    loginAdapterId = id;
+    const platform = loginPlatforms.find((entry) => entry.id === id);
+    selectedRegion = platform?.regions[0]?.id ?? "default";
   }
 
   async function openSettings() {
@@ -668,7 +718,13 @@
       <div class="login-wrap">
         <section class="login-card">
           <span class="brand-mark">DDL</span>
-          <h1>{loginTargetId ? "重新登录雨课堂" : (dashboard?.accounts.length ?? 0) > 0 ? "添加雨课堂账号" : "连接雨课堂"}</h1>
+          <h1>
+            {loginTargetId
+              ? `重新登录${loginPlatformName}`
+              : (dashboard?.accounts.length ?? 0) > 0
+                ? `添加${loginPlatformName}账号`
+                : `连接${loginPlatformName}`}
+          </h1>
           <p class="lead">
             内嵌浏览器登录后只读取作业/考试元数据与截止时间。应用不保存密码。
           </p>
@@ -680,6 +736,10 @@
                 <li>在登录窗口完成扫码或学校 SSO；</li>
                 <li>保持登录窗口打开，回到这里点击“我已完成登录”；</li>
                 <li>应用会读取会话并拉取课程任务。</li>
+                <li>
+                  如果页面提示“重定向次数过多”，关闭登录窗口后重新打开；
+                  应用每次使用全新的临时浏览器会话。
+                </li>
               </ol>
             </div>
             <div class="login-actions">
@@ -701,20 +761,38 @@
           {:else}
             <div class="risk-box">
               <strong>非官方只读工具。</strong>
-              仅使用你本人账号，只读取作业/考试标题、课程、时间和链接；不读取题目/答案、不提交作业、不绕过验证码，默认 30 分钟低频刷新。平台没有公开学生 API，雨课堂用户协议禁止抓取/反向工程，因此仍存在账号受限和接口随时失效的风险。请自行评估并承担使用风险。
+              仅使用你本人账号，只读取作业/考试标题、课程、时间和链接；不读取题目/答案、不提交作业、不绕过验证码，默认 30 分钟低频刷新。平台没有公开学生 API，用户协议可能禁止抓取/反向工程，因此仍存在账号受限和接口随时失效的风险。请自行评估并承担使用风险。
             </div>
 
-            <label class="field">
-              <span>雨课堂入口</span>
-              <select
-                bind:value={selectedRegion}
-                disabled={Boolean(busy) || loginPending}
-              >
-                {#each dashboard?.regions ?? [] as region (region.id)}
-                  <option value={region.id}>{region.label}</option>
-                {/each}
-              </select>
-            </label>
+            {#if loginPlatforms.length > 1}
+              <label class="field">
+                <span>登录平台</span>
+                <select
+                  value={loginPlatformInfo?.id ?? loginAdapterId}
+                  disabled={Boolean(busy) || loginPending}
+                  onchange={(event) =>
+                    selectLoginPlatform(event.currentTarget.value)}
+                >
+                  {#each loginPlatforms as platform (platform.id)}
+                    <option value={platform.id}>{platform.name}</option>
+                  {/each}
+                </select>
+              </label>
+            {/if}
+
+            {#if loginRegions.length > 1}
+              <label class="field">
+                <span>登录入口</span>
+                <select
+                  bind:value={selectedRegion}
+                  disabled={Boolean(busy) || loginPending}
+                >
+                  {#each loginRegions as region (region.id)}
+                    <option value={region.id}>{region.label}</option>
+                  {/each}
+                </select>
+              </label>
+            {/if}
 
             <label class="consent">
               <input type="checkbox" bind:checked={consent} />
@@ -874,11 +952,11 @@
             <h2>适配器 SDK（运行时预览）</h2>
             <div class="account-meta">
               已接入 QuickJS 受控运行时、manifest 加载、本地 Ed25519 签名安装和远程签名 catalog。
-              雨课堂与 mock 现在都由 SDK runtime 执行，内置 Rust 适配器作为回退。当前内置公钥为
-              开发密钥；生产密钥轮换尚未完成。
+              雨课堂、学习通与 mock 现在都由 SDK runtime 执行。
+              当前内置公钥为开发密钥；生产密钥轮换尚未完成。
             </div>
             <div style="display:grid; gap:6px; margin-top:10px;">
-              {#each adapters as adapter (adapter.id)}
+              {#each adapters as adapter (`${adapter.source}:${adapter.id}:${adapter.version}`)}
                 <div class="setting-row">
                   <span>
                     <strong>{adapter.name}</strong>

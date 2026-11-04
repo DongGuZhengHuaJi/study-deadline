@@ -1,7 +1,7 @@
 {
   "name": "@study-deadline/desktop",
   "version": "0.1.0",
-  "description": "Lightweight study deadline floating window",
+  "description": "Lightweight study deadline floating window for Yuketang and Chaoxing",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

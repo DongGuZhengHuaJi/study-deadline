@@ -109,6 +109,12 @@ pub struct PlatformInfo {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// Present when the adapter manifest declares a login entry. The UI only
+    /// offers platforms with a login URL as new-account choices.
+    pub login_url: Option<String>,
+    /// Selectable login regions/entries for this platform. Generic adapters
+    /// expose a single `default` entry.
+    pub regions: Vec<RegionInfo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -138,5 +144,4 @@ pub struct FetchSnapshot {
     pub tasks: Vec<Task>,
     pub complete: bool,
     pub warnings: Vec<String>,
-    pub course_count: usize,
 }

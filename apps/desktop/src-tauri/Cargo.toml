@@ -1,7 +1,7 @@
 [package]
 name = "study-deadline"
 version = "0.1.0"
-description = "Lightweight study deadline floating window for Yuketang"
+description = "Lightweight study deadline floating window for Yuketang and Chaoxing"
 authors = ["donggu"]
 edition = "2024"
 
@@ -42,6 +42,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 rquickjs = "0.14"
 ed25519-dalek = "2"
 sha2 = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Needed to relax the login WebView's third-party cookie policy. WebKitGTK
+# defaults to ACCEPT_NO_THIRD_PARTY, which breaks Chaoxing's SSO redirect
+# chain; Wry/Tauri do not expose this setting.
+webkit2gtk = "2.0"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

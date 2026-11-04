@@ -14,9 +14,9 @@
 
 | 平台 | Runner | 内容 |
 |---|---|---|
-| Linux | `ubuntu-24.04` | 前端检查、`cargo check --all-targets`、`cargo test --lib` |
-| Windows | `windows-latest` | 前端检查、`cargo check --all-targets` |
-| macOS | `macos-latest` | 前端检查、`cargo check --all-targets` |
+| Linux | `ubuntu-24.04` | 前端检查、适配器契约测试、`cargo check --all-targets`、`cargo test --lib` |
+| Windows | `windows-latest` | 前端检查、适配器契约测试、`cargo check --all-targets` |
+| macOS | `macos-latest` | 前端检查、适配器契约测试、`cargo check --all-targets` |
 
 Linux 会安装 WebKitGTK/AppIndicator 等构建依赖。CI 不产出安装包，也不发布任何东西。
 

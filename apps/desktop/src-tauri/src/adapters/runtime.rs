@@ -63,6 +63,10 @@ fn default_get() -> String {
 struct HostHttpResponse {
     status: u16,
     body: String,
+    /// Present for redirects because the host deliberately does not follow
+    /// them itself. Adapters may follow same-platform redirects manually.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,7 +122,7 @@ impl HostState {
         session: Option<&Session>,
     ) -> Result<Self, AdapterRunError> {
         let client = reqwest::blocking::Client::builder()
-            .user_agent(crate::yuketang::USER_AGENT)
+            .user_agent(crate::platform::USER_AGENT)
             .timeout(HTTP_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -199,7 +203,15 @@ impl HostState {
             return Err("only HTTPS is allowed".into());
         }
         if !url_allowed(&request.url, &self.allowed_http) {
-            return Err(format!("URL not allowed by manifest: {}", request.url));
+            // Do not put query strings (which may contain opaque tokens such
+            // as work/detail `enc` values) into logs or UI errors.
+            let safe = format!(
+                "{}://{}{}",
+                url.scheme(),
+                url.host_str().unwrap_or("?"),
+                url.path()
+            );
+            return Err(format!("URL not allowed by manifest: {safe}"));
         }
         let method = match request.method.to_ascii_uppercase().as_str() {
             "GET" => reqwest::Method::GET,
@@ -225,16 +237,25 @@ impl HostState {
         }
         let response = builder
             .send()
-            .map_err(|error| format!("network error: {error}"))?;
+            .map_err(|error| format!("network error: {}", error.without_url()))?;
         let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let bytes = response
             .bytes()
-            .map_err(|error| format!("read response failed: {error}"))?;
+            .map_err(|error| format!("read response failed: {}", error.without_url()))?;
         if bytes.len() > MAX_HTTP_BODY {
             return Err("response too large".into());
         }
         let body = String::from_utf8_lossy(&bytes).into_owned();
-        Ok(HostHttpResponse { status, body })
+        Ok(HostHttpResponse {
+            status,
+            body,
+            location,
+        })
     }
 }
 
@@ -439,7 +460,10 @@ pub fn run_adapter(
         if let Some(error) = parsed.error.as_deref() {
             return Err(match error {
                 "AUTH_EXPIRED" => AdapterRunError::AuthExpired,
-                "RATE_LIMITED" => AdapterRunError::RateLimited,
+                "RATE_LIMITED" | "RISK_CONTROL" => AdapterRunError::RateLimited,
+                "NETWORK" | "HTTP_ERROR" => {
+                    AdapterRunError::Network(format!("adapter reported: {error}"))
+                }
                 "SCHEMA_CHANGED" => {
                     AdapterRunError::SchemaChanged("adapter reported schema change".into())
                 }
@@ -466,7 +490,6 @@ pub fn run_adapter(
             tasks,
             complete: parsed.complete,
             warnings: parsed.warnings,
-            course_count: 0,
         })
     });
     result
@@ -536,9 +559,10 @@ mod tests {
         assert_eq!(result.tasks[0].source, "mock");
     }
 
-    #[test]
-    fn loads_yuketang_adapter_source() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../adapters/yuketang");
+    fn eval_adapter_source(adapter_id: &str) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../adapters")
+            .join(adapter_id);
         let adapter = super::super::manifest::load_adapter_dir(&root, "builtin").unwrap();
         let runtime = Runtime::new().unwrap();
         let context = Context::full(&runtime).unwrap();
@@ -547,7 +571,112 @@ mod tests {
             let ok: bool = ctx
                 .eval("typeof globalThis.adapter === 'object' && typeof globalThis.adapter.fetchTasks === 'function'")
                 .unwrap();
-            assert!(ok);
+            assert!(ok, "adapter {adapter_id} did not load");
+        });
+    }
+
+    #[test]
+    fn loads_yuketang_adapter_source() {
+        eval_adapter_source("yuketang");
+    }
+
+    #[test]
+    fn loads_chaoxing_adapter_source() {
+        eval_adapter_source("chaoxing");
+    }
+
+    #[test]
+    fn chaoxing_task_urls_are_allowed() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../adapters/chaoxing");
+        let adapter = super::super::manifest::load_adapter_dir(&root, "builtin").unwrap();
+        assert!(url_allowed_for_adapter(
+            &adapter,
+            "https://mooc1-2.chaoxing.com/visit/stucoursemiddle?courseid=1&clazzid=2&vc=1"
+        ));
+        assert!(url_allowed_for_adapter(
+            &adapter,
+            "https://mooc1.chaoxing.com/exam-ans/exam/test/examcode/examlist?fid=1"
+        ));
+        assert!(!url_allowed_for_adapter(
+            &adapter,
+            "https://example.com/not-chaoxing"
+        ));
+    }
+
+    fn fixture(name: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../adapters/chaoxing/tests/fixtures")
+            .join(name);
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn runs_chaoxing_adapter_against_fixtures() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../adapters/chaoxing");
+        let adapter = super::super::manifest::load_adapter_dir(&root, "builtin").unwrap();
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            let globals = ctx.globals();
+            let http = Function::new(ctx.clone(), |input: String| {
+                let request: serde_json::Value = serde_json::from_str(&input).unwrap();
+                let url = request["url"].as_str().unwrap_or_default();
+                let body = if url.starts_with("https://i.chaoxing.com/base") {
+                    fixture("base.html")
+                } else if url.contains("/mycourse/backclazzdata") {
+                    fixture("courses.json")
+                } else if url.starts_with("https://mooc1-api.chaoxing.com/work/stu-work") {
+                    fixture("stu-work.html")
+                } else if url.starts_with(
+                    "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/task",
+                ) {
+                    fixture("work-detail-9001.html")
+                } else if url.contains("/exam-ans/exam/test/examcode/examlist") {
+                    fixture("examlist.html")
+                } else {
+                    return serde_json::json!({ "error": "unexpected URL" }).to_string();
+                };
+                serde_json::json!({ "status": 200, "body": body }).to_string()
+            })
+            .unwrap();
+            let session =
+                Function::new(ctx.clone(), |_key: String| "1234".to_string()).unwrap();
+            let log = Function::new(ctx.clone(), |_level: String, _message: String| {}).unwrap();
+            let sleep = Function::new(ctx.clone(), |_milliseconds: u32| {}).unwrap();
+            globals.set("__host_http", http).unwrap();
+            globals.set("__host_session_get", session).unwrap();
+            globals.set("__host_log", log).unwrap();
+            globals.set("__host_sleep", sleep).unwrap();
+            globals
+                .set(
+                    "__host_config_json",
+                    r#"{"adapterId":"chaoxing","region":"default","baseUrl":"https://i.chaoxing.com","timezone":"Asia/Shanghai","locale":"zh-CN"}"#,
+                )
+                .unwrap();
+            ctx.eval::<(), _>(PRELUDE).unwrap();
+            ctx.eval::<(), _>(adapter.entry_source.as_str()).unwrap();
+            let raw: String = ctx
+                .eval("JSON.stringify(globalThis.adapter.fetchTasks(globalThis.__ctx))")
+                .unwrap();
+            let parsed: AdapterFetchResult = serde_json::from_str(&raw).unwrap();
+            assert_eq!(parsed.error, None);
+            assert!(parsed.complete);
+            assert_eq!(parsed.tasks.len(), 4);
+            let work = parsed
+                .tasks
+                .iter()
+                .find(|task| task.title == "第三次作业")
+                .unwrap();
+            assert_eq!(work.course, "概率论");
+            assert_eq!(work.due_at, Some(1_782_043_200_000));
+            let exam = parsed
+                .tasks
+                .iter()
+                .find(|task| task.title == "信号与系统期末考试")
+                .unwrap();
+            assert_eq!(exam.kind, "exam");
+            assert_eq!(exam.starts_at, Some(1_782_867_600_000));
+            assert_eq!(exam.due_at, Some(1_782_874_800_000));
         });
     }
 

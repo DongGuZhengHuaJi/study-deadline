@@ -7,6 +7,7 @@
     "dev": "pnpm --filter @study-deadline/desktop tauri dev",
     "build": "pnpm --filter @study-deadline/desktop tauri build",
     "check": "pnpm --filter @study-deadline/desktop check",
+    "test:adapters": "node --test adapters/chaoxing/tests/contract.test.mjs",
     "tauri": "pnpm --filter @study-deadline/desktop tauri"
   }
 }

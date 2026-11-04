@@ -44,12 +44,86 @@ pub struct AdapterPermissions {
 #[serde(rename_all = "camelCase")]
 pub struct AdapterAuth {
     pub login_url: String,
+    /// Optional platform base URL used as `ctx.config.baseUrl` and as the
+    /// account's stored base URL. Falls back to the login URL origin.
+    #[serde(default)]
+    pub base_url: Option<String>,
     #[serde(default)]
     pub allowed_origins: Vec<String>,
     #[serde(default)]
     pub success_url_patterns: Vec<String>,
+    /// Cookie names to copy into the account session.
     #[serde(default)]
     pub session_cookies: Vec<String>,
+    /// At least one of these cookies must be present after login. When empty,
+    /// any cookie from the adapter's allowed HTTP domains is accepted.
+    #[serde(default)]
+    pub required_any_cookies: Vec<String>,
+}
+
+impl AdapterAuth {
+    /// Base URL stored on a session and exposed as `ctx.config.baseUrl`.
+    pub fn resolved_base_url(&self) -> Result<String, String> {
+        if let Some(base) = self.base_url.as_deref() {
+            let parsed = url::Url::parse(base)
+                .map_err(|error| format!("auth.baseUrl 无效: {error}"))?;
+            if parsed.scheme() != "https" {
+                return Err("auth.baseUrl 必须是 HTTPS".into());
+            }
+            return Ok(parsed.origin().ascii_serialization());
+        }
+        let parsed = url::Url::parse(&self.login_url)
+            .map_err(|error| format!("auth.loginUrl 无效: {error}"))?;
+        Ok(parsed.origin().ascii_serialization())
+    }
+
+    /// Domains whose cookies may be extracted after login. Derived from the
+    /// adapter's HTTP permission host patterns so school SSO/idP cookies are
+    /// never copied into the platform session.
+    pub fn cookie_domains(&self, http_permissions: &[String]) -> Vec<String> {
+        let mut domains = Vec::new();
+        for pattern in http_permissions {
+            let Some(rest) = pattern.strip_prefix("https://") else {
+                continue;
+            };
+            let host = rest.split('/').next().unwrap_or("");
+            let host = host.trim_start_matches("*.");
+            if host.is_empty() {
+                continue;
+            }
+            let domain = host.to_ascii_lowercase();
+            if !domains.contains(&domain) {
+                domains.push(domain);
+            }
+        }
+        domains
+    }
+}
+
+/// True when a cookie domain belongs to one of the adapter's HTTP hosts.
+///
+/// Both directions are accepted: a cookie set on `.yuketang.cn` covers
+/// `www.yuketang.cn`, while a cookie set on a specific subdomain also matches
+/// a broader permission pattern. The dot check prevents `evil-example.com`
+/// from matching `example.com`.
+pub fn cookie_domain_allowed(domain: Option<&str>, allowed: &[String]) -> bool {
+    let Some(domain) = domain else {
+        // A missing domain cannot be attributed to the platform. Callers may
+        // still accept host-only cookies whose names are explicitly declared
+        // in the manifest, but the domain filter itself stays conservative so
+        // school IdP cookies are never copied into a platform session.
+        return false;
+    };
+    let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+    if domain.is_empty() {
+        return false;
+    }
+    allowed.iter().any(|allowed| {
+        let allowed = allowed.trim_start_matches('.').to_ascii_lowercase();
+        domain == allowed
+            || domain.ends_with(&format!(".{allowed}"))
+            || allowed.ends_with(&format!(".{domain}"))
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -137,6 +211,11 @@ impl AdapterManifest {
         if let Some(auth) = &self.auth {
             if !auth.login_url.starts_with("https://") {
                 return Err("auth.loginUrl 必须是 HTTPS".into());
+            }
+            if let Some(base_url) = &auth.base_url {
+                if !base_url.starts_with("https://") {
+                    return Err("auth.baseUrl 必须是 HTTPS".into());
+                }
             }
         }
         Ok(())
@@ -241,5 +320,57 @@ mod tests {
         let loaded = load_adapter_dir(&root, "builtin").unwrap();
         assert_eq!(loaded.manifest.id, "mock");
         assert!(loaded.entry_source.contains("fetchTasks"));
+    }
+
+    #[test]
+    fn cookie_domain_filter_uses_http_permissions() {
+        let auth: AdapterAuth = serde_json::from_str(
+            r#"{
+              "loginUrl": "https://passport2.chaoxing.com/login",
+              "requiredAnyCookies": ["_uid", "UID"]
+            }"#,
+        )
+        .unwrap();
+        let domains = auth.cookie_domains(&["https://*.chaoxing.com/*".to_string()]);
+        assert!(cookie_domain_allowed(Some(".chaoxing.com"), &domains));
+        assert!(cookie_domain_allowed(Some("i.chaoxing.com"), &domains));
+        assert!(!cookie_domain_allowed(
+            Some("authserver.eitech.edu.cn"),
+            &domains
+        ));
+        assert!(!cookie_domain_allowed(Some("evil-chaoxing.com"), &domains));
+        assert!(!cookie_domain_allowed(None, &domains));
+    }
+
+    #[test]
+    fn yuketang_apex_cookie_matches_region_hosts() {
+        let domains = vec![
+            "www.yuketang.cn".to_string(),
+            "pro.yuketang.cn".to_string(),
+            "changjiang.yuketang.cn".to_string(),
+            "huanghe.yuketang.cn".to_string(),
+        ];
+        assert!(cookie_domain_allowed(Some(".yuketang.cn"), &domains));
+        assert!(!cookie_domain_allowed(Some("evil-yuketang.cn"), &domains));
+    }
+
+    #[test]
+    fn auth_base_url_defaults_to_login_origin() {
+        let auth: AdapterAuth = serde_json::from_str(
+            r#"{"loginUrl": "https://passport2.chaoxing.com/login?fid="}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            auth.resolved_base_url().unwrap(),
+            "https://passport2.chaoxing.com"
+        );
+        let explicit: AdapterAuth = serde_json::from_str(
+            r#"{"loginUrl": "https://passport2.chaoxing.com/login", "baseUrl": "https://i.chaoxing.com"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit.resolved_base_url().unwrap(),
+            "https://i.chaoxing.com"
+        );
     }
 }

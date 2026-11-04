@@ -251,6 +251,18 @@ mod tests {
     }
 
     #[test]
+    fn verifies_dev_signed_chaoxing_package() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../adapter-packages/chaoxing-0.1.0.sdapkg");
+        let contents = std::fs::read_to_string(path).unwrap();
+        let (manifest, _) = parse_and_verify(&contents, trusted_key).unwrap();
+        assert_eq!(manifest.id, "chaoxing");
+        assert_eq!(manifest.version, "0.1.0");
+        assert_eq!(manifest.sequence, Some(1));
+        assert!(manifest.auth.is_some());
+    }
+
+    #[test]
     fn installs_signed_package_and_rejects_duplicate() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../adapters/mock/mock-0.1.0.sdapkg");

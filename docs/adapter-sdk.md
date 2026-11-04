@@ -2,9 +2,9 @@
 
 > **重要状态说明（2026-11-04）**
 >
-> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、雨课堂/mock 适配器、
-> 设置页自检和本地 Ed25519 签名包安装（开发公钥）**。雨课堂的定时刷新和登录验证
-> 都通过 SDK runtime 执行；内置 Rust 实现保留为加载失败回退。
+> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、雨课堂/学习通/mock 适配器、
+> 设置页自检和本地 Ed25519 签名包安装（开发公钥）**。雨课堂和学习通的定时刷新、
+> 登录验活都通过 SDK runtime 执行；适配器缺失时刷新报错并保留旧任务。
 > **远程签名 catalog、本地/远程安装已实现；生产密钥轮换和自动回滚尚未完成**。
 >
 > 当前远程目录使用仓库内 `adapters/catalog.json` 和开发公钥；发布前必须轮换生产密钥。
@@ -22,21 +22,21 @@
 
 | 能力 | 当前 v0.1.0 | 目标 v1 |
 |---|---|---|
-| 适配器位置 | `adapters/yuketang` + `adapters/mock` JS 包；Rust 作为回退 | 所有平台独立签名包 |
-| 添加平台 | 新增包 + `load_by_id` 注册；当前雨课堂/mock 已走 JS | 编写适配器包、安装 |
-| 运行时 | 雨课堂/mock QuickJS；Rust 回退 | 全部平台 QuickJS 受控运行时 |
+| 适配器位置 | `adapters/yuketang`、`adapters/chaoxing`、`adapters/mock` JS 包 | 所有平台独立签名包 |
+| 添加平台 | 新增内置包 + manifest `auth` 登录入口；当前雨课堂/学习通/mock 已走 JS | 编写适配器包、安装 |
+| 运行时 | 雨课堂/学习通/mock 全部 QuickJS | 全部平台 QuickJS 受控运行时 |
 | 签名 | 本地 Ed25519 校验（开发公钥） | Ed25519 包签名 + 生产密钥 |
 | 热更新 | 本地 `.sdapkg` + 远程签名 catalog | 生产密钥 + 自动回滚 |
 | UI 隔离 | 无 | 适配器无窗口/文件/进程权限 |
 
 ### 当前已实现的最小闭环
 
-- `adapters/yuketang` 与 `adapters/mock` 是内置 QuickJS 包；
+- `adapters/yuketang`、`adapters/chaoxing` 与 `adapters/mock` 是内置 QuickJS 包；
 - `src-tauri/src/adapters/manifest.rs` 负责 manifest 校验、包目录加载；
 - `src-tauri/src/adapters/runtime.rs` 负责 QuickJS 执行、HTTP/session/log/config/sleep
   受控 API、任务字段/URL 校验和归一化；
-- `src-tauri/src/refresh.rs` 通过 `load_by_id` 选择最新兼容适配器并执行；雨课堂和 mock
-  的实时刷新/登录验证均已走 runtime；
+- `src-tauri/src/refresh.rs` 通过 `load_by_id` 选择最新兼容适配器并执行；雨课堂、
+  学习通和 mock 的实时刷新/登录验证均走 runtime；
 - `src-tauri/src/adapters/install.rs` 实现 Ed25519 签名校验、版本化安装和降级阻断；
 - `scripts/adapter-keygen.mjs` / `scripts/adapter-pack.mjs` 可生成密钥并打包 `.sdapkg`；
 - 设置页的“适配器 SDK（运行时预览）”可运行 mock 自检、查看内置/已安装包、安装 `.sdapkg`，并检查/安装远程签名更新；
@@ -45,8 +45,9 @@
 - 单测覆盖 manifest、URL 白名单、cookie 解析、签名校验、防篡改、安装和两套适配器加载。
 
 已安装的适配器使用更高 `sequence` 时会被 `load_by_id` 选中，从而可覆盖内置包；
-多账号状态、账号切换/重登和按平台筛选已经实现；面向用户的“从 manifest 动态生成平台登录入口”
-仍需完善（当前登录 UI 固定雨课堂）。Rust 实现保留为适配器加载失败时的回退。
+多账号状态、账号切换/重登和按平台筛选已经实现；登录 UI 已由 manifest 的 `auth`
+动态生成平台/入口选择（雨课堂、学习通），新增带 `auth` 的适配器无需改前端。
+适配器加载失败时，该账号刷新会报“平台适配器不可用”，并保留上次成功任务。
 
 ## 3. 总体架构
 
@@ -211,12 +212,14 @@ HTTP 宿主负责：
   },
   "auth": {
     "loginUrl": "https://www.example.edu/login",
+    "baseUrl": "https://www.example.edu",
     "allowedOrigins": [
       "https://www.example.edu",
       "https://*.example.edu"
     ],
     "successUrlPatterns": ["/dashboard"],
-    "sessionCookies": ["sessionid", "csrftoken"]
+    "sessionCookies": ["sessionid", "csrftoken"],
+    "requiredAnyCookies": ["sessionid"]
   }
 }
 ```
@@ -232,8 +235,15 @@ HTTP 宿主负责：
 | `permissions.http` | 允许访问的域名/路径模式 |
 | `permissions.session` | 允许读取的 Cookie/localStorage 键名 |
 | `auth.loginUrl` | 登录窗口入口 |
+| `auth.baseUrl` | 可选平台基础地址；缺省取 `loginUrl` 的 origin，用于会话和 `ctx.config.baseUrl` |
 | `successUrlPatterns` | 可选的成功页面模式；必须辅以实际接口验证 |
 | `sessionCookies` | 登录后允许提取的 Cookie 名 |
+| `requiredAnyCookies` | 登录后至少存在其中一个 Cookie 才视为有会话；为空时退化为 `sessionCookies` |
+
+Cookie 域名过滤由 `permissions.http` 推导：只提取平台自身域名（例如 `*.chaoxing.com`）
+下的 Cookie；没有域名的 host-only Cookie 只有在 `sessionCookies` 中显式声明时才会接收。
+学校 SSO/IdP Cookie 不会写入平台会话。登录窗口允许普通 HTTPS 跳转以支持学校 CAS，
+但它没有 IPC 能力，且宿主的 Cookie 提取按适配器域名白名单二次过滤。
 
 不允许：
 
@@ -390,24 +400,28 @@ adapters/<id>/
 - 部分成功时显示“部分课程未刷新”，保留旧任务；
 - 失败时不静默清空任务。
 
-## 13. 当前如何增加一个内置平台（过渡方案）
+## 13. 当前如何增加一个内置平台
 
-在 v1 宿主完成前，新增平台仍然需要修改核心代码并重新发版：
+平台适配器现在可以完全以包的形式加入，不需要改前端或账号流程：
 
-1. 新建 `apps/desktop/src-tauri/src/<platform>.rs`；
-2. 实现与 `yuketang.rs` 同形态的 `fetch_snapshot(session, account_id)`；
-3. 复用 `models.rs` 的 `Task`、`FetchSnapshot` 和既有任务校验规则；
-4. 在登录/账号流程中增加该平台入口；
-5. 添加脱敏 fixtures 和契约测试；
-6. 重新编译并发布主程序。
+1. 新建 `adapters/<id>/manifest.json` 与 `index.js`，在 manifest 中声明
+   `permissions.http`、`auth.loginUrl`、`auth.baseUrl`、`requiredAnyCookies`；
+2. `index.js` 实现同步 `fetchTasks(ctx)`，只返回任务元数据；
+3. 添加脱敏 HTML/JSON fixtures 和 `node --test` 契约测试
+   （参考 `adapters/chaoxing/tests/`）；
+4. 运行 `node scripts/adapter-pack.mjs` 生成签名 `.sdapkg`；
+5. 把包和哈希加入 `scripts/adapter-catalog.mjs` 的 entries，重新生成
+   `adapters/catalog.json`；
+6. 安装/更新后，登录 UI 会从 manifest 的 `auth` 自动生成平台入口。
 
-雨课堂现在已经迁移到 `adapters/yuketang`，Rust 仅作为回退；剩余差距主要是账号 UI
-仍只暴露雨课堂入口；远程签名目录已实现（开发密钥），生产密钥和自动回滚尚未完成。
+所有平台均通过 SDK runtime 执行；适配器缺失时刷新报错并保留旧任务。
+远程签名目录已实现（开发密钥），生产密钥和自动回滚尚未完成。
 
 ## 14. 参考
 
 - 当前雨课堂适配器：[`adapters/yuketang/index.js`](../adapters/yuketang/index.js)
-- Rust 回退实现：[`src-tauri/src/yuketang.rs`](../apps/desktop/src-tauri/src/yuketang.rs)
+- 当前学习通适配器：[`adapters/chaoxing/index.js`](../adapters/chaoxing/index.js)
 - 统一任务模型：[`src-tauri/src/models.rs`](../apps/desktop/src-tauri/src/models.rs)
 - 雨课堂接口与字段：[`docs/platform/yuketang.md`](platform/yuketang.md)
+- 学习通接口与字段：[`docs/platform/chaoxing.md`](platform/chaoxing.md)
 - 架构说明：[`docs/architecture.md`](architecture.md)

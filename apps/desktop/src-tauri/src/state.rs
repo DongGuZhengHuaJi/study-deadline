@@ -1,9 +1,9 @@
 use crate::models::{
     AccountView, Dashboard, PlatformInfo, Session, Settings, SyncView,
 };
+use crate::platform;
 use crate::secret::{decrypt_session, MasterKey};
 use crate::storage::{AccountRow, Database};
-use crate::yuketang;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -133,7 +133,7 @@ impl AppState {
             platforms,
             settings,
             sync,
-            regions: yuketang::regions(),
+            regions: platform::yuketang_regions(),
             log_path: self.log_dir.join("app.log").to_string_lossy().to_string(),
             version: env!("CARGO_PKG_VERSION").into(),
         })

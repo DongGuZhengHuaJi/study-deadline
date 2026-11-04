@@ -72,6 +72,9 @@ jobs:
       - name: Frontend type/a11y check
         run: pnpm check
 
+      - name: Adapter contract tests
+        run: pnpm test:adapters
+
       - name: Rust check (all targets)
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 

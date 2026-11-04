@@ -1,7 +1,7 @@
 {
   "format": "study-deadline-adapter-catalog/1",
   "keyId": "dev-2026",
-  "generatedAt": "2026-11-04T13:04:08.616Z",
-  "adaptersJson": "[\n  {\n    \"id\": \"mock\",\n    \"name\": \"SDK Mock Adapter\",\n    \"version\": \"0.1.1\",\n    \"apiVersion\": 1,\n    \"sequence\": 2,\n    \"url\": \"https://raw.githubusercontent.com/DongGuZhengHuaJi/study-deadline/main/adapter-packages/mock-0.1.1.sdapkg\",\n    \"sha256\": \"gqV6p7HJR5CRyTEQ4NgHzcq/bqZMx+KP2HguTU9diFo=\"\n  },\n  {\n    \"id\": \"yuketang\",\n    \"name\": \"雨课堂\",\n    \"version\": \"0.1.1\",\n    \"apiVersion\": 1,\n    \"sequence\": 2,\n    \"url\": \"https://raw.githubusercontent.com/DongGuZhengHuaJi/study-deadline/main/adapter-packages/yuketang-0.1.1.sdapkg\",\n    \"sha256\": \"Z7GxHwVKIfSHSEEMKxAdjVr/11Xi1x5rR49acuo9f1Y=\"\n  }\n]",
-  "signature": "+Y2FJNHTQSgnSBoxIXJ5wA+fVh+2so8X+5XHurW2eX47oO+sozkSQlVcBEJ+b9HdtoHLDmXT0P+BRYYhDEtvDw=="
+  "generatedAt": "2026-11-04T14:03:41.605Z",
+  "adaptersJson": "[\n  {\n    \"id\": \"mock\",\n    \"name\": \"SDK Mock Adapter\",\n    \"version\": \"0.1.1\",\n    \"apiVersion\": 1,\n    \"sequence\": 2,\n    \"url\": \"https://raw.githubusercontent.com/DongGuZhengHuaJi/study-deadline/main/adapter-packages/mock-0.1.1.sdapkg\",\n    \"sha256\": \"gqV6p7HJR5CRyTEQ4NgHzcq/bqZMx+KP2HguTU9diFo=\"\n  },\n  {\n    \"id\": \"yuketang\",\n    \"name\": \"雨课堂\",\n    \"version\": \"0.1.1\",\n    \"apiVersion\": 1,\n    \"sequence\": 2,\n    \"url\": \"https://raw.githubusercontent.com/DongGuZhengHuaJi/study-deadline/main/adapter-packages/yuketang-0.1.1.sdapkg\",\n    \"sha256\": \"Z7GxHwVKIfSHSEEMKxAdjVr/11Xi1x5rR49acuo9f1Y=\"\n  },\n  {\n    \"id\": \"chaoxing\",\n    \"name\": \"学习通\",\n    \"version\": \"0.1.0\",\n    \"apiVersion\": 1,\n    \"sequence\": 1,\n    \"url\": \"https://raw.githubusercontent.com/DongGuZhengHuaJi/study-deadline/main/adapter-packages/chaoxing-0.1.0.sdapkg\",\n    \"sha256\": \"5fypaend/6GcdfD6pMb71Qjz3jGmIhXqUrMsvnIb75Y=\"\n  }\n]",
+  "signature": "fOga+poVgIoD0tSEMtoFyCAbmFjjeGSxK7yZQutsj4tiKeeCBU0bNxVKoI5yms2AzKwVh5+bDuN8eOekUW1oDg=="
 }
