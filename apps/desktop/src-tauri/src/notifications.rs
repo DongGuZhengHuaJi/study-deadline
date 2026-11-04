@@ -53,15 +53,7 @@ pub fn check_and_notify(app: &AppHandle) {
     if !settings.notifications_enabled {
         return;
     }
-    let Some(account) = state
-        .account
-        .read()
-        .ok()
-        .and_then(|account| account.clone())
-    else {
-        return;
-    };
-    let tasks = match state.db.load_tasks(&account.id) {
+    let tasks = match state.db.load_tasks_all() {
         Ok(tasks) => tasks,
         Err(error) => {
             tracing::warn!(%error, "load tasks for notifications failed");

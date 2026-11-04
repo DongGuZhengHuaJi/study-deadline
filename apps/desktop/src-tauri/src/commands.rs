@@ -1,7 +1,7 @@
 use crate::adapters::{self, manifest::AdapterInfo, AdapterSmokeResult};
-use crate::models::{Dashboard, Session, Settings};
+use crate::models::{Dashboard, PlatformInfo, Session, Settings};
 use crate::refresh;
-use crate::state::AppState;
+use crate::state::{AppState, PendingLogin};
 use crate::storage::AccountRow;
 use crate::yuketang::{self, USER_AGENT};
 use chrono::Utc;
@@ -14,9 +14,23 @@ use uuid::Uuid;
 
 pub const LOGIN_LABEL: &str = "login-yuketang";
 
+fn platform_infos(app: &AppHandle) -> Vec<PlatformInfo> {
+    adapters::list_all(app)
+        .into_iter()
+        .map(|adapter| PlatformInfo {
+            id: adapter.id,
+            name: adapter.name,
+            version: adapter.version,
+        })
+        .collect()
+}
+
 #[tauri::command]
-pub async fn bootstrap(state: State<'_, AppState>) -> Result<Dashboard, String> {
-    state.dashboard()
+pub async fn bootstrap(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Dashboard, String> {
+    state.dashboard(platform_infos(&app))
 }
 
 #[tauri::command]
@@ -87,9 +101,18 @@ pub async fn open_login(
     app: AppHandle,
     state: State<'_, AppState>,
     region_id: String,
+    account_id: Option<String>,
 ) -> Result<(), String> {
     let region = yuketang::region(&region_id)
         .ok_or_else(|| "未知的雨课堂区域".to_string())?;
+    if let Some(account_id) = &account_id {
+        let account = state
+            .account_by_id(account_id)
+            .ok_or_else(|| "要重新登录的账号不存在".to_string())?;
+        if account.adapter_id != yuketang::ADAPTER_ID {
+            return Err("当前登录窗口只支持雨课堂账号".into());
+        }
+    }
     let url = Url::parse(&format!("{}/v2/web/index", region.base_url))
         .map_err(|error| format!("登录地址无效: {error}"))?;
 
@@ -118,9 +141,11 @@ pub async fn open_login(
         .build()
         .map_err(|error| format!("创建登录窗口失败: {error}"))?;
 
-    if let Ok(mut pending) = state.login_region.write() {
-        *pending = Some(region.id);
-    }
+    state.set_pending_login(Some(PendingLogin {
+        adapter_id: yuketang::ADAPTER_ID.into(),
+        region: region.id,
+        target_account_id: account_id,
+    }));
     Ok(())
 }
 
@@ -138,9 +163,14 @@ pub async fn close_login(app: AppHandle) -> Result<(), String> {
 pub async fn finish_login(
     app: AppHandle,
     state: State<'_, AppState>,
-    region_id: String,
 ) -> Result<Dashboard, String> {
-    let region = yuketang::region(&region_id)
+    let pending = state
+        .pending_login()
+        .ok_or_else(|| "没有进行中的登录请求".to_string())?;
+    if pending.adapter_id != yuketang::ADAPTER_ID {
+        return Err("当前登录窗口只支持雨课堂账号".into());
+    }
+    let region = yuketang::region(&pending.region)
         .ok_or_else(|| "未知的雨课堂区域".to_string())?;
     let window = app
         .get_webview_window(LOGIN_LABEL)
@@ -159,12 +189,11 @@ pub async fn finish_login(
         tracing::warn!("csrftoken missing after login; continuing with GET-only validation");
     }
 
-    let account_id = state
-        .account
-        .read()
-        .ok()
-        .and_then(|account| account.as_ref().map(|account| account.id.clone()))
+    let account_id = pending
+        .target_account_id
+        .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let existing = state.account_by_id(&account_id);
 
     let session = Session {
         base_url: region.base_url.clone(),
@@ -192,11 +221,6 @@ pub async fn finish_login(
     })?;
 
     let now = Utc::now().timestamp_millis();
-    let existing = state
-        .account
-        .read()
-        .ok()
-        .and_then(|account| account.clone());
     let session_blob = if let Some(key) = state.master_key.as_ref() {
         match crate::secret::encrypt_session(key, &session) {
             Ok(blob) => Some(blob),
@@ -224,13 +248,11 @@ pub async fn finish_login(
         last_error: None,
     };
     state.db.save_account(&account)?;
-    state.set_account(Some(account));
-    state.set_session(Some(session));
+    state.upsert_account(account, Some(session));
     state.db.replace_tasks(&account_id, &snapshot.tasks, snapshot.complete)?;
-    state.record_sync_success(snapshot.warnings);
-    if let Ok(mut pending) = state.login_region.write() {
-        *pending = None;
-    }
+    state.mark_account_success(&account_id, now);
+    state.finish_refresh(snapshot.warnings);
+    state.set_pending_login(None);
     let _ = window.destroy();
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.show();
@@ -239,7 +261,7 @@ pub async fn finish_login(
     crate::tray::update_tooltip(&app);
     crate::notifications::check_and_notify(&app);
     refresh::emit_state_changed(&app);
-    state.dashboard()
+    state.dashboard(platform_infos(&app))
 }
 
 #[tauri::command]
@@ -295,7 +317,7 @@ pub async fn update_settings(
     }
 
     refresh::emit_state_changed(&app);
-    state.dashboard()
+    state.dashboard(platform_infos(&app))
 }
 
 #[tauri::command]
@@ -323,9 +345,15 @@ pub async fn open_task(
     if url.scheme() != "https" {
         return Err("只允许打开 HTTPS 链接".into());
     }
-    let host = url.host_str().unwrap_or_default();
-    if !(host == "yuketang.cn" || host.ends_with(".yuketang.cn")) {
-        return Err("任务链接域名不在允许范围内".into());
+    let allowed = match adapters::load_by_id(&app, &task.source) {
+        Some(adapter) => adapters::runtime::url_allowed_for_adapter(&adapter, &task.url),
+        None => {
+            let host = url.host_str().unwrap_or_default();
+            host == "yuketang.cn" || host.ends_with(".yuketang.cn")
+        }
+    };
+    if !allowed {
+        return Err("任务链接域名不在适配器允许范围内".into());
     }
 
     // Use the user's normal browser. The app's WebView session is deliberately
@@ -338,28 +366,29 @@ pub async fn open_task(
 }
 
 #[tauri::command]
-pub async fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<Dashboard, String> {
+pub async fn logout(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<Dashboard, String> {
     let account = state
-        .account
-        .read()
-        .map_err(|_| "账号状态损坏")?
-        .clone();
-    if let Some(account) = account {
-        state.db.delete_account(&account.id)?;
-    }
-    state.set_session(None);
-    state.set_account(None);
-    if let Ok(mut sync) = state.sync.write() {
-        *sync = crate::models::SyncView::default();
-    }
-    if let Ok(mut pending) = state.login_region.write() {
-        *pending = None;
-    }
-    if let Some(window) = app.get_webview_window(LOGIN_LABEL) {
-        let _ = window.destroy();
+        .account_by_id(&account_id)
+        .ok_or_else(|| "账号不存在".to_string())?;
+    state.db.delete_account(&account.id)?;
+    state.remove_account(&account.id);
+    if state
+        .pending_login()
+        .and_then(|pending| pending.target_account_id)
+        .as_deref()
+        == Some(account.id.as_str())
+    {
+        state.set_pending_login(None);
+        if let Some(window) = app.get_webview_window(LOGIN_LABEL) {
+            let _ = window.destroy();
+        }
     }
     refresh::emit_state_changed(&app);
-    state.dashboard()
+    state.dashboard(platform_infos(&app))
 }
 
 #[tauri::command]

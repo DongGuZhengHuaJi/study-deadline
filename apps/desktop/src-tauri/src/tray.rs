@@ -90,15 +90,7 @@ pub fn update_tooltip(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let account = state
-        .account
-        .read()
-        .ok()
-        .and_then(|account| account.clone());
-    let tasks = account
-        .as_ref()
-        .and_then(|account| state.db.load_tasks(&account.id).ok())
-        .unwrap_or_default();
+    let tasks = state.db.load_tasks_all().unwrap_or_default();
     let now = Utc::now().timestamp_millis();
     let pending = tasks
         .iter()

@@ -61,9 +61,9 @@ pub fn run() {
 
             let state = AppState::initialize(&app.handle(), log_dir)?;
             let should_refresh = state
-                .session
+                .sessions
                 .read()
-                .map(|session| session.is_some())
+                .map(|sessions| !sessions.is_empty())
                 .unwrap_or(false);
             app.manage(state);
 

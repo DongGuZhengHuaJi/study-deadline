@@ -30,13 +30,18 @@
 
   type Account = {
     id: string;
+    adapter_id: string;
     display_name: string;
     region: string;
     base_url: string;
     authenticated: boolean;
+    needs_login: boolean;
+    refreshing: boolean;
     last_success_at: number | null;
     last_error: string | null;
   };
+
+  type Platform = { id: string; name: string; version: string };
 
   type Sync = {
     refreshing: boolean;
@@ -65,7 +70,8 @@
   };
   type Dashboard = {
     tasks: Task[];
-    account: Account | null;
+    accounts: Account[];
+    platforms: Platform[];
     settings: Settings;
     sync: Sync;
     regions: Region[];
@@ -81,7 +87,9 @@
   let notice = $state("");
   let loginFlow = $state(false);
   let loginPending = $state(false);
+  let loginTargetId = $state<string | null>(null);
   let selectedRegion = $state("www");
+  let selectedPlatform = $state("all");
   let consent = $state(false);
   let showLogs = $state(false);
   let logLoading = $state(false);
@@ -100,11 +108,53 @@
     quiz: "测验",
   };
 
-  let authenticated = $derived(dashboard?.account?.authenticated === true);
-  let showLogin = $derived(!loading && (!authenticated || loginFlow));
+  let authenticated = $derived(
+    (dashboard?.accounts ?? []).some((account) => account.authenticated),
+  );
+  let showLogin = $derived(
+    !loading && ((dashboard?.accounts.length ?? 0) === 0 || loginFlow),
+  );
+  let visibleTasks = $derived(
+    (dashboard?.tasks ?? []).filter(
+      (task) => selectedPlatform === "all" || task.source === selectedPlatform,
+    ),
+  );
+  let platformFilters = $derived.by(() => {
+    const byId = new Map<string, { id: string; name: string; count: number }>();
+    for (const platform of dashboard?.platforms ?? []) {
+      byId.set(platform.id, { id: platform.id, name: platform.name, count: 0 });
+    }
+    for (const account of dashboard?.accounts ?? []) {
+      if (!byId.has(account.adapter_id)) {
+        byId.set(account.adapter_id, {
+          id: account.adapter_id,
+          name: account.adapter_id,
+          count: 0,
+        });
+      }
+    }
+    for (const task of dashboard?.tasks ?? []) {
+      const entry = byId.get(task.source) ?? {
+        id: task.source,
+        name: task.source,
+        count: 0,
+      };
+      entry.count += 1;
+      byId.set(task.source, entry);
+    }
+    return [...byId.values()].filter(
+      (entry) =>
+        entry.count > 0 ||
+        (dashboard?.accounts ?? []).some(
+          (account) => account.adapter_id === entry.id,
+        ),
+    );
+  });
+  let accountNeedingLogin = $derived(
+    (dashboard?.accounts ?? []).filter((account) => account.needs_login),
+  );
   let activeTasks = $derived.by(() => {
-    const tasks = dashboard?.tasks ?? [];
-    return tasks
+    return visibleTasks
       .filter((task) => {
         if (task.completed) return false;
         const target = targetFor(task);
@@ -113,8 +163,7 @@
       .sort((a, b) => (targetFor(a) ?? 0) - (targetFor(b) ?? 0));
   });
   let pastTasks = $derived.by(() => {
-    const tasks = dashboard?.tasks ?? [];
-    return tasks
+    return visibleTasks
       .filter((task) => {
         const target = targetFor(task);
         return task.completed || (target !== null && target <= now);
@@ -122,11 +171,8 @@
       .sort((a, b) => (targetFor(b) ?? 0) - (targetFor(a) ?? 0));
   });
   let untimedTasks = $derived(
-    (dashboard?.tasks ?? []).filter(
-      (task) => !task.completed && targetFor(task) === null,
-    ),
+    visibleTasks.filter((task) => !task.completed && targetFor(task) === null),
   );
-  let pendingCount = $derived(activeTasks.length + untimedTasks.length);
 
   onMount(() => {
     const timer = window.setInterval(() => {
@@ -160,7 +206,13 @@
       if (!initialized) {
         initialized = true;
         consent = data.settings.risk_accepted;
-        if (data.account) selectedRegion = data.account.region;
+        if (data.accounts.length > 0) selectedRegion = data.accounts[0].region;
+      }
+      if (
+        selectedPlatform !== "all" &&
+        !data.platforms.some((platform) => platform.id === selectedPlatform)
+      ) {
+        selectedPlatform = "all";
       }
       loading = false;
     } catch (error) {
@@ -253,6 +305,17 @@
     return kindLabels[kind] ?? "任务";
   }
 
+  function platformName(adapterId: string): string {
+    return (
+      dashboard?.platforms.find((platform) => platform.id === adapterId)?.name ??
+      (adapterId === "yuketang" ? "雨课堂" : adapterId)
+    );
+  }
+
+  function platformInitial(adapterId: string): string {
+    return platformName(adapterId).slice(0, 1);
+  }
+
   function statusSummary(): string {
     if (!dashboard) return "";
     if (dashboard.sync.refreshing) return "同步中…";
@@ -290,7 +353,10 @@
           settings: { ...dashboard.settings, risk_accepted: true },
         });
       }
-      await invoke("open_login", { regionId: selectedRegion });
+      await invoke("open_login", {
+        regionId: selectedRegion,
+        accountId: loginTargetId,
+      });
       loginPending = true;
     } catch (error) {
       notice = `打开登录窗口失败: ${String(error)}`;
@@ -304,12 +370,11 @@
     busy = "finish-login";
     notice = "";
     try {
-      const data = await invoke<Dashboard>("finish_login", {
-        regionId: selectedRegion,
-      });
+      const data = await invoke<Dashboard>("finish_login");
       dashboard = data;
       loginPending = false;
       loginFlow = false;
+      loginTargetId = null;
       view = "compact";
       await invoke("set_view", { view: "compact" });
     } catch (error) {
@@ -329,7 +394,26 @@
       await closeLogin();
     }
     loginFlow = false;
+    loginTargetId = null;
     notice = "";
+  }
+
+  async function beginAddAccount() {
+    loginTargetId = null;
+    loginFlow = true;
+    loginPending = false;
+    selectedRegion = "www";
+    view = "compact";
+    await invoke("set_view", { view: "compact" }).catch(() => {});
+  }
+
+  async function beginRelogin(account: Account) {
+    loginTargetId = account.id;
+    loginFlow = true;
+    loginPending = false;
+    selectedRegion = account.region;
+    view = "compact";
+    await invoke("set_view", { view: "compact" }).catch(() => {});
   }
 
   async function openSettings() {
@@ -372,21 +456,21 @@
     }
   }
 
-  async function logout() {
-    if (!dashboard?.account) return;
-    if (!window.confirm("删除本地会话与任务缓存，并退出当前账号？")) return;
+  async function deleteAccount(accountId: string) {
+    if (!window.confirm("删除该账号的本地会话与任务缓存？")) return;
     busy = "logout";
     notice = "";
     try {
-      const data = await invoke<Dashboard>("logout");
+      const data = await invoke<Dashboard>("logout", { accountId });
       dashboard = data;
-      view = "compact";
+      if (loginTargetId === accountId) loginTargetId = null;
       loginFlow = false;
       loginPending = false;
       showLogs = false;
+      view = "compact";
       await invoke("set_view", { view: "compact" }).catch(() => {});
     } catch (error) {
-      notice = `退出失败: ${String(error)}`;
+      notice = `删除账号失败: ${String(error)}`;
     } finally {
       busy = "";
     }
@@ -511,19 +595,25 @@
       {:else}
         <span class="brand-mark">DDL</span>
         <span>课业倒计时</span>
-        <span class="brand-sub">{authenticated ? "雨课堂 · 只读" : "只读提醒"}</span>
+        <span class="brand-sub">
+          {authenticated
+            ? `${dashboard?.accounts.length ?? 0} 个账号 · 只读`
+            : "只读提醒"}
+        </span>
       {/if}
     </div>
     <div class="titlebar-actions">
-      {#if authenticated && view === "compact"}
-        <button
-          class="icon-button"
-          title="刷新"
-          aria-label="刷新"
-          disabled={Boolean(busy) || dashboard?.sync.refreshing}
-          onclick={refreshNow}
-        ><span class={dashboard?.sync.refreshing ? "spin" : ""}>⟳</span></button
-        >
+      {#if (dashboard?.accounts.length ?? 0) > 0 && view === "compact"}
+        {#if authenticated}
+          <button
+            class="icon-button"
+            title="刷新"
+            aria-label="刷新"
+            disabled={Boolean(busy) || dashboard?.sync.refreshing}
+            onclick={refreshNow}
+          ><span class={dashboard?.sync.refreshing ? "spin" : ""}>⟳</span></button
+          >
+        {/if}
         <button
           class="icon-button"
           title="设置"
@@ -553,7 +643,7 @@
       <div class="login-wrap">
         <section class="login-card">
           <span class="brand-mark">DDL</span>
-          <h1>{dashboard?.account ? "重新登录雨课堂" : "连接雨课堂"}</h1>
+          <h1>{loginTargetId ? "重新登录雨课堂" : (dashboard?.accounts.length ?? 0) > 0 ? "添加雨课堂账号" : "连接雨课堂"}</h1>
           <p class="lead">
             内嵌浏览器登录后只读取作业/考试元数据与截止时间。应用不保存密码。
           </p>
@@ -577,7 +667,7 @@
               <button class="ghost" disabled={Boolean(busy)} onclick={closeLogin}
                 >关闭登录窗口</button
               >
-              {#if authenticated && loginFlow}
+              {#if (dashboard?.accounts.length ?? 0) > 0 && loginFlow}
                 <button class="ghost" disabled={Boolean(busy)} onclick={cancelLoginFlow}
                   >取消</button
                 >
@@ -613,22 +703,12 @@
                 onclick={startLogin}
               >{busy === "login" ? "正在打开登录窗口…" : "打开登录窗口"}</button
               >
-              {#if dashboard?.account}
-                <button class="ghost" disabled={Boolean(busy)} onclick={logout}
-                  >删除会话</button
-                >
-              {/if}
-              {#if authenticated && loginFlow}
+              {#if (dashboard?.accounts.length ?? 0) > 0 && loginFlow}
                 <button class="ghost" disabled={Boolean(busy)} onclick={cancelLoginFlow}
                   >取消</button
                 >
               {/if}
             </div>
-            {#if dashboard?.account && !authenticated}
-              <p class="lead" style="margin: 12px 0 0;">
-                已有账号记录，但本地会话缺失或已失效。请重新登录。
-              </p>
-            {/if}
           {/if}
 
           {#if notice}
@@ -722,48 +802,47 @@
 
           <section class="settings-card">
             <h2>账号</h2>
-            <div class="account-row">
-              <div class="account-avatar">雨</div>
-              <div>
-                <div class="account-name">
-                  {dashboard?.account?.display_name ?? "未连接"}
+            <div class="account-list">
+              {#each dashboard?.accounts ?? [] as account (account.id)}
+                <div class="account-item">
+                  <div class="account-row">
+                    <div class="account-avatar">{platformInitial(account.adapter_id)}</div>
+                    <div class="account-main">
+                      <div class="account-name">
+                        {account.display_name}
+                        <span class="account-meta">#{account.id.slice(0, 6)}</span>
+                      </div>
+                      <div class="account-meta">
+                        {platformName(account.adapter_id)} · {account.base_url}
+                      </div>
+                      <div class="account-meta">
+                        {account.authenticated ? "已登录" : "需要重新登录"}
+                        {#if account.last_error} · {account.last_error}{/if}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="account-actions">
+                    <button
+                      class="ghost"
+                      disabled={Boolean(busy)}
+                      onclick={() => beginRelogin(account)}>重新登录</button
+                    >
+                    <button
+                      class="danger"
+                      disabled={Boolean(busy)}
+                      onclick={() => deleteAccount(account.id)}>删除</button
+                    >
+                  </div>
                 </div>
-                <div class="account-meta">
-                  {dashboard?.account?.base_url ?? "请先登录雨课堂"}
-                </div>
-              </div>
+              {:else}
+                <div class="account-meta">还没有账号。添加一个平台账号开始同步。</div>
+              {/each}
             </div>
             <div class="account-actions">
-              {#if authenticated}
-                <button
-                  class="ghost"
-                  disabled={Boolean(busy)}
-                  onclick={() => {
-                    loginFlow = true;
-                    view = "compact";
-                    invoke("set_view", { view: "compact" }).catch(() => {});
-                  }}>重新登录</button
-                >
-                <button class="danger" disabled={Boolean(busy)} onclick={logout}
-                  >退出并删除会话</button
-                >
-              {:else}
-                <button
-                  class="primary"
-                  disabled={Boolean(busy)}
-                  onclick={() => {
-                    loginFlow = true;
-                    view = "compact";
-                    invoke("set_view", { view: "compact" }).catch(() => {});
-                  }}>登录</button
-                >
-              {/if}
+              <button class="primary" disabled={Boolean(busy)} onclick={beginAddAccount}
+                >添加账号</button
+              >
             </div>
-            {#if dashboard?.sync.last_error}
-              <div class="banner error" style="margin-top:12px; margin-bottom:0;">
-                {dashboard.sync.last_error}
-              </div>
-            {/if}
           </section>
 
           <section class="settings-card full">
@@ -880,6 +959,25 @@
         </span>
       </div>
 
+      <div class="platform-filter" role="tablist" aria-label="按平台筛选任务">
+        <button
+          role="tab"
+          aria-selected={selectedPlatform === "all"}
+          class:active={selectedPlatform === "all"}
+          onclick={() => (selectedPlatform = "all")}
+        >全部 <span>{dashboard?.tasks.length ?? 0}</span></button
+        >
+        {#each platformFilters as platform (platform.id)}
+          <button
+            role="tab"
+            aria-selected={selectedPlatform === platform.id}
+            class:active={selectedPlatform === platform.id}
+            onclick={() => (selectedPlatform = platform.id)}
+          >{platform.name} <span>{platform.count}</span></button
+          >
+        {/each}
+      </div>
+
       {#if notice}
         <div class="banner error">{notice}</div>
       {/if}
@@ -891,22 +989,19 @@
           部分课程未完整刷新，已保留上次成功结果（{dashboard?.sync.warnings.length} 条警告）。
         </div>
       {/if}
-      {#if dashboard?.sync.needs_login}
+      {#each accountNeedingLogin as account (account.id)}
         <div class="banner warning needs-login">
-          <span>登录已失效，任务已缓存但无法继续刷新。</span>
-          <button
-            class="ghost"
-            onclick={() => {
-              loginFlow = true;
-            }}>重新登录</button
-          >
+          <span>
+            {platformName(account.adapter_id)} · {account.display_name} 需要重新登录。
+          </span>
+          <button class="ghost" onclick={() => beginRelogin(account)}>重新登录</button>
         </div>
-      {/if}
+      {/each}
 
       {#if activeTasks.length === 0 && untimedTasks.length === 0 && pastTasks.length === 0}
         <div class="empty">
           <strong>暂无带截止时间的任务</strong>
-          刷新后，雨课堂当前学期的作业和考试会显示在这里。
+          刷新后，已登录平台的作业和考试会显示在这里。
         </div>
       {:else}
         {#if activeTasks.length === 0 && untimedTasks.length === 0}
@@ -924,7 +1019,7 @@
             >
               <div class="task-main">
                 <div class="task-kicker">
-                  <span class="platform-chip">雨</span>
+                  <span class="platform-chip" title={platformName(task.source)}>{platformInitial(task.source)}</span>
                   <span class="course-name">{task.course || "未命名课程"}</span>
                   <span class="kind">{kindLabel(task.kind)}</span>
                 </div>
@@ -953,7 +1048,7 @@
               <button class={taskClass(task)} onclick={() => openTask(task)}>
                 <div class="task-main">
                   <div class="task-kicker">
-                    <span class="platform-chip">雨</span>
+                    <span class="platform-chip" title={platformName(task.source)}>{platformInitial(task.source)}</span>
                     <span class="course-name">{task.course}</span>
                     <span class="kind">{kindLabel(task.kind)}</span>
                   </div>
@@ -976,7 +1071,7 @@
                 <button class={taskClass(task)} onclick={() => openTask(task)}>
                   <div class="task-main">
                     <div class="task-kicker">
-                      <span class="platform-chip">雨</span>
+                      <span class="platform-chip" title={platformName(task.source)}>{platformInitial(task.source)}</span>
                       <span class="course-name">{task.course}</span>
                       <span class="kind">{kindLabel(task.kind)}</span>
                     </div>

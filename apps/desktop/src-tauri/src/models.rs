@@ -93,12 +93,22 @@ pub struct RegionInfo {
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountView {
     pub id: String,
+    pub adapter_id: String,
     pub display_name: String,
     pub region: String,
     pub base_url: String,
     pub authenticated: bool,
+    pub needs_login: bool,
+    pub refreshing: bool,
     pub last_success_at: Option<i64>,
     pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlatformInfo {
+    pub id: String,
+    pub name: String,
+    pub version: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -114,7 +124,8 @@ pub struct SyncView {
 #[derive(Clone, Debug, Serialize)]
 pub struct Dashboard {
     pub tasks: Vec<Task>,
-    pub account: Option<AccountView>,
+    pub accounts: Vec<AccountView>,
+    pub platforms: Vec<PlatformInfo>,
     pub settings: Settings,
     pub sync: SyncView,
     pub regions: Vec<RegionInfo>,

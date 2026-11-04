@@ -647,6 +647,66 @@ details.past .task-list {
   transform: translateX(15px);
 }
 
+.platform-filter {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.platform-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.platform-filter button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.platform-filter button span {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.platform-filter button.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.account-list {
+  display: grid;
+  gap: 0;
+}
+
+.account-item {
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+
+.account-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.account-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.account-name .account-meta {
+  font-weight: 500;
+}
+
 .account-row {
   display: flex;
   align-items: center;

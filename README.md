@@ -25,17 +25,20 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 | 雨课堂适配器 | 内置 QuickJS 适配器；Rust 实现保留为回退 |
 | 适配器 SDK | QuickJS 运行时、雨课堂与 mock 适配器、本地 Ed25519 签名安装已实现（开发公钥）；远程热更新、生产密钥轮换待完成，见 [SDK 规范](docs/adapter-sdk.md) |
 | 任务点击 | 使用系统浏览器打开课程详情；不注入/共享系统浏览器 Cookie |
+| 多账号/平台筛选 | 已实现多账号聚合刷新和按平台筛选；真实登录平台目前仍只有雨课堂 |
 | CI / CD | GitHub Actions 覆盖 Linux/Windows/macOS 检查与安装包构建，见 [CI/CD](docs/ci-cd.md) |
 
 ## 功能
 
 - **悬浮窗**：无边框、置顶、可拖动、可隐藏到托盘，按截止时间排序，逐秒倒计时
+- **多账号**：可同时添加多个账号并自动刷新；任务跨账号汇总
+- **平台筛选**：任务列表可显示全部，或单独显示某个平台
 - **雨课堂登录**：内嵌 WebView 手动扫码/学校 SSO，支持标准、荷塘、长江、黄河入口
 - **会话安全**：只读取 `yuketang.cn` 域 Cookie；AES-256-GCM 加密会话，主密钥保存在 OS 凭据库
 - **只读拉取**：当前学期课程列表 → 课程进度树 → 作业/考试/测验截止时间；考试预告去重
 - **提醒**：24h / 6h / 1h / 10m 阈值，系统通知；失败时保留旧任务并按刷新间隔重试
 - **托盘**：显示/隐藏、立即刷新、设置、退出
-- **设置**：刷新间隔、系统通知、开机启动（仅发布版）、窗口置顶、账号管理、日志查看、适配器 SDK 自检
+- **设置**：刷新间隔、系统通知、开机启动（仅发布版）、窗口置顶、多账号管理、日志查看、适配器 SDK 自检
 - **工程能力**：SQLite 缓存、敏感字段脱敏日志、单实例、关闭到托盘、Linux deb 打包
 - **SDK 预览**：QuickJS 受控运行时、雨课堂/mock 适配器、manifest 校验、设置页自检和本地签名包安装
 
@@ -89,7 +92,7 @@ sudo apt-get install -y ./src-tauri/target/release/bundle/deb/StudyDeadline_0.1.
 
 ### Windows / macOS
 
-代码和 Tauri 配置保持跨平台，但尚未在 Windows/macOS 实机完成验收。
+Windows 10/11 已由用户完成安装版实机验收；macOS 仍只有 CI 构建验证，没有实机验收。
 `Release` workflow 会在对应 GitHub runner 上构建 NSIS `.exe` 和 `.dmg`，
 产物当前**未代码签名**：macOS Gatekeeper 和 Windows SmartScreen 会提示。
 
@@ -196,8 +199,9 @@ Linux 数据位置：
 - [x] 适配器 SDK 运行时（QuickJS + manifest + mock 自检）
 - [x] 本地 Ed25519 签名适配器安装（开发公钥）
 - [x] 雨课堂迁移到 QuickJS 适配器；定时刷新和登录验证均走 runtime（Rust 为回退）
+- [x] 多账号聚合刷新、账号管理、全部/按平台筛选
 - [ ] 生产签名密钥轮换、远程目录和自动回滚
-- [ ] 已安装适配器作为账号入口的完整 UI（当前按 adapter_id 自动选择最新 sequence）
+- [ ] 适配器 manifest 驱动的平台添加/登录 UI（当前只有雨课堂登录入口）
 - [ ] 任务叶子深链（减少从课程页再跳转）
 - [ ] macOS 签名/公证与 Linux Wayland 适配
 

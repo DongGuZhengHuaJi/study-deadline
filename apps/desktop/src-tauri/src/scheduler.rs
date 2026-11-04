@@ -18,9 +18,9 @@ pub async fn run(app: AppHandle) {
             .map(|settings| settings.clone())
             .unwrap_or_default();
         let has_session = state
-            .session
+            .sessions
             .read()
-            .map(|session| session.is_some())
+            .map(|sessions| !sessions.is_empty())
             .unwrap_or(false);
 
         if has_session {

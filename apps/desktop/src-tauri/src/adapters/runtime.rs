@@ -253,6 +253,11 @@ fn cookie_value(cookie_header: &str, key: &str) -> Option<String> {
     })
 }
 
+/// True when a URL is within the adapter manifest's HTTP permission set.
+pub fn url_allowed_for_adapter(adapter: &LoadedAdapter, url: &str) -> bool {
+    url_allowed(url, &adapter.manifest.permissions.http)
+}
+
 /// A deliberately conservative URL allowlist. The manifest pattern is an
 /// HTTPS origin plus optional path prefix, with `*.` subdomain wildcards.
 fn url_allowed(url: &str, patterns: &[String]) -> bool {
@@ -326,7 +331,7 @@ fn validate_task(
     }
     let url = task.url.unwrap_or_default();
     if !url.is_empty() {
-        if !url_allowed(&url, &adapter.manifest.permissions.http) {
+        if !url_allowed_for_adapter(adapter, &url) {
             return Err("task URL is not allowed by manifest".into());
         }
     }

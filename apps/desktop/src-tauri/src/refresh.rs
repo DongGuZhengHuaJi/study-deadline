@@ -2,6 +2,7 @@ use crate::adapters::{self, runtime::AdapterRunError};
 use crate::models::{FetchSnapshot, Session};
 use crate::state::AppState;
 use crate::yuketang::{self, FetchError};
+use chrono::Utc;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub fn emit_state_changed(app: &AppHandle) {
@@ -19,6 +20,7 @@ pub async fn fetch_account_snapshot(
         tracing::info!(
             adapter = %adapter_id,
             version = %version,
+            account = %account_id,
             "using SDK adapter runtime"
         );
         let session = session.clone();
@@ -41,74 +43,81 @@ pub async fn fetch_account_snapshot(
     yuketang::fetch_snapshot(session, account_id).await
 }
 
-/// Fetch a new snapshot for the current account.
-///
-/// The refresh lock serialises scheduled and manual refreshes. Old tasks are
-/// only replaced after the corresponding database write succeeds.
+/// Refresh every account that has a session. Accounts are independent: one
+/// expired session does not stop the others.
 pub async fn refresh(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _guard = state.refresh_lock.lock().await;
 
-    let account = state
-        .account
-        .read()
-        .map_err(|_| "账号状态损坏")?
-        .clone()
-        .ok_or_else(|| "尚未登录雨课堂".to_string())?;
-    let session = state
-        .session
-        .read()
-        .map_err(|_| "会话状态损坏")?
-        .clone()
-        .ok_or_else(|| "会话不存在，请重新登录".to_string())?;
+    let accounts = state.accounts_snapshot()?;
+    if accounts.is_empty() {
+        return Err("尚未添加学习平台账号".into());
+    }
+    let sessions = state.sessions_snapshot()?;
+    if sessions.is_empty() {
+        return Err("没有可用的登录会话，请先登录".into());
+    }
 
-    state.set_sync_refreshing(true);
+    state.begin_refresh();
     emit_state_changed(app);
 
-    tracing::info!(
-        adapter = yuketang::ADAPTER_ID,
-        account = %account.id,
-        "refresh started"
-    );
+    let mut warnings = Vec::new();
+    let mut successes = 0usize;
+    let mut errors = Vec::new();
 
-    let result = fetch_account_snapshot(app, &account.adapter_id, &account.id, &session).await;
-    match result {
-        Ok(snapshot) => {
-            state
-                .db
-                .replace_tasks(&account.id, &snapshot.tasks, snapshot.complete)?;
-            if !snapshot.complete {
-                tracing::warn!(
-                    warnings = snapshot.warnings.len(),
-                    "refresh completed with warnings"
+    for account in accounts {
+        let Some(session) = sessions.get(&account.id).cloned() else {
+            continue;
+        };
+        tracing::info!(
+            adapter = %account.adapter_id,
+            account = %account.id,
+            "refresh started"
+        );
+        let result =
+            fetch_account_snapshot(app, &account.adapter_id, &account.id, &session).await;
+        match result {
+            Ok(snapshot) => {
+                state
+                    .db
+                    .replace_tasks(&account.id, &snapshot.tasks, snapshot.complete)?;
+                let now = Utc::now().timestamp_millis();
+                state.mark_account_success(&account.id, now);
+                successes += 1;
+                warnings.extend(snapshot.warnings);
+                tracing::info!(
+                    account = %account.id,
+                    tasks = snapshot.tasks.len(),
+                    complete = snapshot.complete,
+                    "refresh succeeded"
                 );
             }
-            state.record_sync_success(snapshot.warnings);
-            tracing::info!(
-                tasks = snapshot.tasks.len(),
-                courses = snapshot.course_count,
-                complete = snapshot.complete,
-                "refresh succeeded"
-            );
-            crate::tray::update_tooltip(app);
-            crate::notifications::check_and_notify(app);
-            emit_state_changed(app);
-            Ok(())
+            Err(FetchError::AuthExpired) => {
+                state.clear_account_session(&account.id);
+                state.mark_account_error(&account.id, "登录已失效，请重新登录");
+                errors.push(format!("{}: 登录已失效", account.display_name));
+                tracing::warn!(account = %account.id, "session expired");
+            }
+            Err(error) => {
+                let message = error.to_string();
+                state.mark_account_error(&account.id, &message);
+                errors.push(format!("{}: {message}", account.display_name));
+                tracing::warn!(account = %account.id, %message, "refresh failed");
+            }
         }
-        Err(FetchError::AuthExpired) => {
-            state.set_session(None);
-            let _ = state.db.update_session_blob(&account.id, None);
-            state.record_sync_error("登录已失效，请重新登录", true);
-            tracing::warn!("session expired");
-            emit_state_changed(app);
-            Err("登录已失效，请重新登录".into())
-        }
-        Err(error) => {
-            let message = error.to_string();
-            state.record_sync_error(&message, false);
-            tracing::warn!(%message, "refresh failed");
-            emit_state_changed(app);
-            Err(message)
-        }
+    }
+
+    state.finish_refresh(warnings);
+    crate::tray::update_tooltip(app);
+    crate::notifications::check_and_notify(app);
+    emit_state_changed(app);
+
+    if successes == 0 {
+        Err(errors
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "所有账号刷新失败".into()))
+    } else {
+        Ok(())
     }
 }

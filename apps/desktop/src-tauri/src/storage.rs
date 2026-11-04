@@ -107,32 +107,32 @@ impl Database {
         Ok(())
     }
 
-    pub fn load_account(&self, adapter_id: &str) -> Option<AccountRow> {
-        self.lock()
-            .ok()?
-            .query_row(
+    pub fn load_accounts(&self) -> Result<Vec<AccountRow>, String> {
+        let conn = self.lock()?;
+        let mut statement = conn
+            .prepare(
                 "SELECT id, adapter_id, region, base_url, display_name, session_blob,
                         created_at, last_success_at, last_error
-                 FROM accounts WHERE adapter_id = ?1
-                 ORDER BY COALESCE(last_success_at, 0) DESC LIMIT 1",
-                params![adapter_id],
-                |row| {
-                    Ok(AccountRow {
-                        id: row.get(0)?,
-                        adapter_id: row.get(1)?,
-                        region: row.get(2)?,
-                        base_url: row.get(3)?,
-                        display_name: row.get(4)?,
-                        session_blob: row.get(5)?,
-                        created_at: row.get(6)?,
-                        last_success_at: row.get(7)?,
-                        last_error: row.get(8)?,
-                    })
-                },
+                 FROM accounts ORDER BY created_at ASC",
             )
-            .optional()
-            .ok()
-            .flatten()
+            .map_err(|error| format!("读取账号失败: {error}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(AccountRow {
+                    id: row.get(0)?,
+                    adapter_id: row.get(1)?,
+                    region: row.get(2)?,
+                    base_url: row.get(3)?,
+                    display_name: row.get(4)?,
+                    session_blob: row.get(5)?,
+                    created_at: row.get(6)?,
+                    last_success_at: row.get(7)?,
+                    last_error: row.get(8)?,
+                })
+            })
+            .map_err(|error| format!("读取账号失败: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("读取账号失败: {error}"))
     }
 
     pub fn save_account(&self, account: &AccountRow) -> Result<(), String> {
@@ -234,18 +234,18 @@ impl Database {
         Ok(())
     }
 
-    pub fn load_tasks(&self, account_id: &str) -> Result<Vec<Task>, String> {
+    pub fn load_tasks_all(&self) -> Result<Vec<Task>, String> {
         let conn = self.lock()?;
         let mut statement = conn
             .prepare(
                 "SELECT id, account_id, remote_id, title, course, kind, due_at, starts_at,
                         status, completed, url, source, fetched_at
-                 FROM tasks WHERE account_id = ?1
+                 FROM tasks
                  ORDER BY COALESCE(starts_at, due_at, 9223372036854775807) ASC",
             )
-            .map_err(|error| format!("读取任务失败: {error}"))?;
+            .map_err(|error| format!("读取全部任务失败: {error}"))?;
         let rows = statement
-            .query_map(params![account_id], |row| {
+            .query_map([], |row| {
                 Ok(Task {
                     id: row.get(0)?,
                     account_id: row.get(1)?,
@@ -262,9 +262,9 @@ impl Database {
                     fetched_at: row.get(12)?,
                 })
             })
-            .map_err(|error| format!("读取任务失败: {error}"))?;
+            .map_err(|error| format!("读取全部任务失败: {error}"))?;
         rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("读取任务失败: {error}"))
+            .map_err(|error| format!("读取全部任务失败: {error}"))
     }
 
     pub fn task_by_id(&self, task_id: &str) -> Option<Task> {
@@ -347,5 +347,68 @@ impl Database {
             )
             .map_err(|error| format!("记录提醒失败: {error}"))?;
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Task;
+
+    fn task(id: &str, account_id: &str) -> Task {
+        Task {
+            id: id.into(),
+            account_id: account_id.into(),
+            remote_id: id.into(),
+            title: id.into(),
+            course: "Course".into(),
+            kind: "assignment".into(),
+            due_at: Some(1),
+            starts_at: None,
+            status: "pending".into(),
+            completed: false,
+            url: "https://www.yuketang.cn/".into(),
+            source: "yuketang".into(),
+            fetched_at: 1,
+        }
+    }
+
+    fn account(id: &str) -> AccountRow {
+        AccountRow {
+            id: id.into(),
+            adapter_id: "yuketang".into(),
+            region: "www".into(),
+            base_url: "https://www.yuketang.cn".into(),
+            display_name: "雨课堂".into(),
+            session_blob: None,
+            created_at: 1,
+            last_success_at: None,
+            last_error: None,
+        }
+    }
+
+    #[test]
+    fn accounts_and_tasks_are_separated() {
+        let path = std::env::temp_dir().join(format!(
+            "study-deadline-db-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&path).unwrap();
+        db.save_account(&account("a")).unwrap();
+        db.save_account(&account("b")).unwrap();
+        db.replace_tasks("a", &[task("a-1", "a")], true).unwrap();
+        db.replace_tasks(
+            "b",
+            &[task("b-1", "b"), task("b-2", "b")],
+            true,
+        )
+        .unwrap();
+        assert_eq!(db.load_accounts().unwrap().len(), 2);
+        assert_eq!(db.load_tasks_all().unwrap().len(), 3);
+        db.delete_account("a").unwrap();
+        assert_eq!(db.load_accounts().unwrap().len(), 1);
+        assert_eq!(db.load_tasks_all().unwrap().len(), 2);
+        let _ = std::fs::remove_file(&path);
     }
 }
