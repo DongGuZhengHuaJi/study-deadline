@@ -769,8 +769,9 @@
           <section class="settings-card full">
             <h2>适配器 SDK（运行时预览）</h2>
             <div class="account-meta">
-              已接入 QuickJS 受控运行时、manifest 加载和本地 Ed25519 签名安装。当前内置公钥
-              为开发密钥；远程热更新、密钥轮换和雨课堂迁移尚未完成。雨课堂仍走内置 Rust 适配器。
+              已接入 QuickJS 受控运行时、manifest 加载和本地 Ed25519 签名安装。雨课堂与 mock
+              现在都由 SDK runtime 执行，内置 Rust 适配器作为回退。当前内置公钥为开发密钥；
+              远程热更新和密钥轮换尚未完成。
             </div>
             <div style="display:grid; gap:6px; margin-top:10px;">
               {#each adapters as adapter (adapter.id)}

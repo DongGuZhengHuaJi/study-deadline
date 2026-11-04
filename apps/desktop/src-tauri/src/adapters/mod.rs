@@ -27,6 +27,47 @@ pub fn list_builtin(app: &AppHandle) -> Vec<AdapterInfo> {
         .unwrap_or_default()
 }
 
+fn load_candidates_from_root(root: &std::path::Path) -> Vec<LoadedAdapter> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut loaded = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        match load_adapter_dir(&path, "installed") {
+            Ok(adapter) => loaded.push(adapter),
+            Err(_) => {}
+        }
+    }
+    loaded
+}
+
+/// Find the best compatible adapter package for an id. Installed packages
+/// with a higher sequence win over built-in packages.
+pub fn load_by_id(app: &AppHandle, id: &str) -> Option<LoadedAdapter> {
+    let mut candidates = Vec::new();
+    if let Some(root) = adapter_root(app) {
+        for entry in std::fs::read_dir(root).ok()?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(adapter) = load_adapter_dir(&path, "builtin") {
+                    candidates.push(adapter);
+                }
+            }
+        }
+    }
+    if let Ok(installed) = install::installed_root(app) {
+        candidates.extend(load_candidates_from_root(&installed));
+    }
+    candidates
+        .into_iter()
+        .filter(|adapter| adapter.manifest.id == id)
+        .max_by_key(|adapter| adapter.manifest.sequence.unwrap_or(0))
+}
+
 pub fn list_all(app: &AppHandle) -> Vec<AdapterInfo> {
     let mut adapters = list_builtin(app);
     if let Ok(root) = install::installed_root(app) {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-const RUN_TIMEOUT: Duration = Duration::from_secs(25);
+const RUN_TIMEOUT: Duration = Duration::from_secs(90);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_HTTP_BODY: usize = 5 * 1024 * 1024;
 const MAX_TASKS: usize = 2000;
@@ -25,6 +25,12 @@ pub enum AdapterRunError {
     InvalidOutput(String),
     #[error("适配器网络请求失败: {0}")]
     Network(String),
+    #[error("登录已失效")]
+    AuthExpired,
+    #[error("平台请求被限流")]
+    RateLimited,
+    #[error("平台数据结构变化: {0}")]
+    SchemaChanged(String),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -66,6 +72,10 @@ struct AdapterFetchResult {
     tasks: Vec<AdapterTask>,
     #[serde(default)]
     complete: bool,
+    #[serde(default)]
+    warnings: Vec<String>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +166,11 @@ impl HostState {
             return String::new();
         }
         cookie_value(&self.cookie_header, &key).unwrap_or_default()
+    }
+
+    fn sleep(&self, milliseconds: u32) {
+        let milliseconds = milliseconds.min(5000);
+        std::thread::sleep(Duration::from_millis(milliseconds as u64));
     }
 
     fn log(&self, level: String, message: String) {
@@ -374,6 +389,13 @@ pub fn run_adapter(
             })
             .map_err(|error| AdapterRunError::Runtime(error.to_string()))?
         };
+        let host_sleep = {
+            let host = host.clone();
+            Function::new(ctx.clone(), move |milliseconds: u32| {
+                host.sleep(milliseconds);
+            })
+            .map_err(|error| AdapterRunError::Runtime(error.to_string()))?
+        };
         globals
             .set("__host_http", host_http)
             .map_err(|error| AdapterRunError::Runtime(error.to_string()))?;
@@ -382,6 +404,9 @@ pub fn run_adapter(
             .map_err(|error| AdapterRunError::Runtime(error.to_string()))?;
         globals
             .set("__host_log", host_log)
+            .map_err(|error| AdapterRunError::Runtime(error.to_string()))?;
+        globals
+            .set("__host_sleep", host_sleep)
             .map_err(|error| AdapterRunError::Runtime(error.to_string()))?;
         globals
             .set("__host_config_json", host.config_json())
@@ -406,6 +431,16 @@ pub fn run_adapter(
             })?;
         let parsed: AdapterFetchResult = serde_json::from_str(&raw)
             .map_err(|error| AdapterRunError::InvalidOutput(error.to_string()))?;
+        if let Some(error) = parsed.error.as_deref() {
+            return Err(match error {
+                "AUTH_EXPIRED" => AdapterRunError::AuthExpired,
+                "RATE_LIMITED" => AdapterRunError::RateLimited,
+                "SCHEMA_CHANGED" => {
+                    AdapterRunError::SchemaChanged("adapter reported schema change".into())
+                }
+                other => AdapterRunError::Runtime(format!("adapter error: {other}")),
+            });
+        }
         if parsed.tasks.len() > MAX_TASKS {
             return Err(AdapterRunError::InvalidOutput("too many tasks".into()));
         }
@@ -425,7 +460,7 @@ pub fn run_adapter(
         Ok(FetchSnapshot {
             tasks,
             complete: parsed.complete,
-            warnings: Vec::new(),
+            warnings: parsed.warnings,
             course_count: 0,
         })
     });
@@ -460,6 +495,9 @@ const PRELUDE: &str = r#"
         return response.body;
       }
     },
+    sleep(milliseconds) {
+      globalThis.__host_sleep(Math.max(0, Math.min(5000, Number(milliseconds) || 0)));
+    },
     session: {
       get(key) {
         const value = globalThis.__host_session_get(String(key));
@@ -491,6 +529,21 @@ mod tests {
         assert_eq!(result.tasks.len(), 1);
         assert!(result.complete);
         assert_eq!(result.tasks[0].source, "mock");
+    }
+
+    #[test]
+    fn loads_yuketang_adapter_source() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../adapters/yuketang");
+        let adapter = super::super::manifest::load_adapter_dir(&root, "builtin").unwrap();
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            ctx.eval::<(), _>(adapter.entry_source.as_str()).unwrap();
+            let ok: bool = ctx
+                .eval("typeof globalThis.adapter === 'object' && typeof globalThis.adapter.fetchTasks === 'function'")
+                .unwrap();
+            assert!(ok);
+        });
     }
 
     #[test]

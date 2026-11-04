@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "yuketang",
+  "name": "雨课堂",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minHostVersion": "0.1.0",
+  "entry": "index.js",
+  "permissions": {
+    "http": [
+      "https://www.yuketang.cn/*",
+      "https://pro.yuketang.cn/*",
+      "https://changjiang.yuketang.cn/*",
+      "https://huanghe.yuketang.cn/*"
+    ],
+    "session": [
+      "cookie:csrftoken"
+    ]
+  },
+  "auth": {
+    "loginUrl": "https://www.yuketang.cn/v2/web/index",
+    "allowedOrigins": [
+      "https://www.yuketang.cn",
+      "https://pro.yuketang.cn",
+      "https://changjiang.yuketang.cn",
+      "https://huanghe.yuketang.cn"
+    ],
+    "successUrlPatterns": [
+      "/v2/web/index"
+    ],
+    "sessionCookies": [
+      "sessionid",
+      "csrftoken"
+    ]
+  }
+}

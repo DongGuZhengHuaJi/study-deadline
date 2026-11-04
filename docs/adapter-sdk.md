@@ -2,9 +2,10 @@
 
 > **重要状态说明（2026-11-04）**
 >
-> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、mock 适配器、设置页自检
-> 和本地 Ed25519 签名包安装（开发公钥）**；雨课堂仍然走内置 Rust 适配器。
-> **远程目录、自动更新、生产密钥轮换和雨课堂迁移尚未完成**。
+> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、雨课堂/mock 适配器、
+> 设置页自检和本地 Ed25519 签名包安装（开发公钥）**。雨课堂的定时刷新和登录验证
+> 都通过 SDK runtime 执行；内置 Rust 实现保留为加载失败回退。
+> **远程目录、自动更新和生产密钥轮换尚未完成**。
 >
 > 本文既是当前边界的说明，也是后续 `v1` SDK 的目标契约。下面的远程/自动更新能力
 > 尚未启用；本地签名安装已经可用。
@@ -22,27 +23,28 @@
 
 | 能力 | 当前 v0.1.0 | 目标 v1 |
 |---|---|---|
-| 适配器位置 | 雨课堂：`yuketang.rs` 内置；mock：`adapters/mock` JS 包 | 所有平台独立签名包 |
-| 添加平台 | 雨课堂仍改 Rust；mock 已可独立加载 | 编写适配器包、安装 |
-| 运行时 | 雨课堂 Rust；mock QuickJS | 全部平台 QuickJS 受控运行时 |
+| 适配器位置 | `adapters/yuketang` + `adapters/mock` JS 包；Rust 作为回退 | 所有平台独立签名包 |
+| 添加平台 | 新增包 + `load_by_id` 注册；当前雨课堂/mock 已走 JS | 编写适配器包、安装 |
+| 运行时 | 雨课堂/mock QuickJS；Rust 回退 | 全部平台 QuickJS 受控运行时 |
 | 签名 | 本地 Ed25519 校验（开发公钥） | Ed25519 包签名 + 生产密钥 |
 | 热更新 | 本地 `.sdapkg` 安装 | 签名目录 + 远程安装 + 自动回滚 |
 | UI 隔离 | 无 | 适配器无窗口/文件/进程权限 |
 
 ### 当前已实现的最小闭环
 
-- `adapters/mock/manifest.json` + `index.js` 作为内置测试包；
+- `adapters/yuketang` 与 `adapters/mock` 是内置 QuickJS 包；
 - `src-tauri/src/adapters/manifest.rs` 负责 manifest 校验、包目录加载；
-- `src-tauri/src/adapters/runtime.rs` 负责 QuickJS 执行、HTTP/session/log/config 受控 API、
-  任务字段/URL 校验和归一化；
-- 设置页的“适配器 SDK（运行时预览）”可运行 mock 自检；
+- `src-tauri/src/adapters/runtime.rs` 负责 QuickJS 执行、HTTP/session/log/config/sleep
+  受控 API、任务字段/URL 校验和归一化；
+- `src-tauri/src/refresh.rs` 通过 `load_by_id` 选择最新兼容适配器并执行；雨课堂和 mock
+  的实时刷新/登录验证均已走 runtime；
 - `src-tauri/src/adapters/install.rs` 实现 Ed25519 签名校验、版本化安装和降级阻断；
 - `scripts/adapter-keygen.mjs` / `scripts/adapter-pack.mjs` 可生成密钥并打包 `.sdapkg`；
-- 15 个 Rust 单测覆盖 manifest、URL 白名单、cookie 解析、签名校验、防篡改和安装。
+- 设置页的“适配器 SDK（运行时预览）”可运行 mock 自检、查看内置/已安装包并安装 `.sdapkg`；
+- 单测覆盖 manifest、URL 白名单、cookie 解析、签名校验、防篡改、安装和两套适配器加载。
 
-当前运行时只加载内置包；通过设置页安装的包会存到应用数据目录，但尚未作为账号适配器
-自动启用。真实 HTTP/CSRF 场景仍需在雨课堂迁移时补齐。雨课堂内置适配器与 mock
-都遵守统一任务模型和只读边界。
+已安装的适配器使用更高 `sequence` 时会被 `load_by_id` 选中，从而可覆盖内置包；
+面向用户的账号创建/平台选择 UI 仍需完善。Rust 实现保留为适配器加载失败时的回退。
 
 ## 3. 总体架构
 
@@ -397,12 +399,13 @@ adapters/<id>/
 5. 添加脱敏 fixtures 和契约测试；
 6. 重新编译并发布主程序。
 
-这与“独立热更新”目标还有差距，但能保证当前版本行为可验证。计划在 v0.2/v0.3
-把该模块迁移到独立适配器包与 QuickJS 运行时。
+雨课堂现在已经迁移到 `adapters/yuketang`，Rust 仅作为回退；剩余差距主要是账号 UI
+仍只暴露雨课堂入口，以及远程签名目录和自动更新尚未实现。
 
 ## 14. 参考
 
-- 当前内置实现：[`src-tauri/src/yuketang.rs`](../apps/desktop/src-tauri/src/yuketang.rs)
+- 当前雨课堂适配器：[`adapters/yuketang/index.js`](../adapters/yuketang/index.js)
+- Rust 回退实现：[`src-tauri/src/yuketang.rs`](../apps/desktop/src-tauri/src/yuketang.rs)
 - 统一任务模型：[`src-tauri/src/models.rs`](../apps/desktop/src-tauri/src/models.rs)
 - 雨课堂接口与字段：[`docs/platform/yuketang.md`](platform/yuketang.md)
 - 架构说明：[`docs/architecture.md`](architecture.md)

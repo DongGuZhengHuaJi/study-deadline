@@ -1,9 +1,44 @@
+use crate::adapters::{self, runtime::AdapterRunError};
+use crate::models::{FetchSnapshot, Session};
 use crate::state::AppState;
 use crate::yuketang::{self, FetchError};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub fn emit_state_changed(app: &AppHandle) {
     let _ = app.emit("state-changed", ());
+}
+
+pub async fn fetch_account_snapshot(
+    app: &AppHandle,
+    adapter_id: &str,
+    account_id: &str,
+    session: &Session,
+) -> Result<FetchSnapshot, FetchError> {
+    if let Some(adapter) = adapters::load_by_id(app, adapter_id) {
+        let version = adapter.manifest.version.clone();
+        tracing::info!(
+            adapter = %adapter_id,
+            version = %version,
+            "using SDK adapter runtime"
+        );
+        let session = session.clone();
+        let account_id = account_id.to_string();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            adapters::runtime::run_adapter(&adapter, Some(&session), &account_id)
+        })
+        .await
+        .map_err(|error| FetchError::Network(format!("适配器线程失败: {error}")))?;
+        return match result {
+            Ok(snapshot) => Ok(snapshot),
+            Err(AdapterRunError::AuthExpired) => Err(FetchError::AuthExpired),
+            Err(AdapterRunError::RateLimited) => {
+                Err(FetchError::RateLimited("SDK adapter rate limited".into()))
+            }
+            Err(AdapterRunError::SchemaChanged(message)) => Err(FetchError::Schema(message)),
+            Err(error) => Err(FetchError::Schema(error.to_string())),
+        };
+    }
+    yuketang::fetch_snapshot(session, account_id).await
 }
 
 /// Fetch a new snapshot for the current account.
@@ -36,7 +71,7 @@ pub async fn refresh(app: &AppHandle) -> Result<(), String> {
         "refresh started"
     );
 
-    let result = yuketang::fetch_snapshot(&session, &account.id).await;
+    let result = fetch_account_snapshot(app, &account.adapter_id, &account.id, &session).await;
     match result {
         Ok(snapshot) => {
             state

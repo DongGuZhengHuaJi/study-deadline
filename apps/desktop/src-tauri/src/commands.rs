@@ -177,14 +177,19 @@ pub async fn finish_login(
         acquired_at: Utc::now().timestamp_millis(),
     };
 
-    let snapshot = yuketang::fetch_snapshot(&session, &account_id)
-        .await
-        .map_err(|error| match error {
-            yuketang::FetchError::AuthExpired => {
-                "会话验证失败：登录已过期或未完成，请重新登录".to_string()
-            }
-            other => format!("登录后验证失败: {other}"),
-        })?;
+    let snapshot = crate::refresh::fetch_account_snapshot(
+        &app,
+        yuketang::ADAPTER_ID,
+        &account_id,
+        &session,
+    )
+    .await
+    .map_err(|error| match error {
+        yuketang::FetchError::AuthExpired => {
+            "会话验证失败：登录已过期或未完成，请重新登录".to_string()
+        }
+        other => format!("登录后验证失败: {other}"),
+    })?;
 
     let now = Utc::now().timestamp_millis();
     let existing = state

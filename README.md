@@ -22,8 +22,8 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 | Linux 桌面 | 已在本机编译、安装、真实登录和任务拉取验证 |
 | Windows 10/11 | 用户已完成实机验收（NSIS 安装版登录、拉取、托盘等）；签名/正式发布仍待办 |
 | macOS | 路线图；需要 Apple 签名/公证 |
-| 雨课堂适配器 | 当前为内置 Rust 适配器 |
-| 适配器 SDK | QuickJS 运行时 + manifest + mock 包 + 本地 Ed25519 签名安装已实现（开发公钥）；远程热更新、生产密钥轮换、雨课堂迁移待完成，见 [SDK 规范](docs/adapter-sdk.md) |
+| 雨课堂适配器 | 内置 QuickJS 适配器；Rust 实现保留为回退 |
+| 适配器 SDK | QuickJS 运行时、雨课堂与 mock 适配器、本地 Ed25519 签名安装已实现（开发公钥）；远程热更新、生产密钥轮换待完成，见 [SDK 规范](docs/adapter-sdk.md) |
 | 任务点击 | 使用系统浏览器打开课程详情；不注入/共享系统浏览器 Cookie |
 | CI / CD | GitHub Actions 覆盖 Linux/Windows/macOS 检查与安装包构建，见 [CI/CD](docs/ci-cd.md) |
 
@@ -37,7 +37,7 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 - **托盘**：显示/隐藏、立即刷新、设置、退出
 - **设置**：刷新间隔、系统通知、开机启动（仅发布版）、窗口置顶、账号管理、日志查看、适配器 SDK 自检
 - **工程能力**：SQLite 缓存、敏感字段脱敏日志、单实例、关闭到托盘、Linux deb 打包
-- **SDK 预览**：QuickJS 受控运行时、manifest 校验、内置 mock 适配器、设置页自检和本地签名包安装
+- **SDK 预览**：QuickJS 受控运行时、雨课堂/mock 适配器、manifest 校验、设置页自检和本地签名包安装
 
 ## 截图
 
@@ -195,8 +195,9 @@ Linux 数据位置：
 - [x] Windows 实机验收（用户）
 - [x] 适配器 SDK 运行时（QuickJS + manifest + mock 自检）
 - [x] 本地 Ed25519 签名适配器安装（开发公钥）
+- [x] 雨课堂迁移到 QuickJS 适配器；定时刷新和登录验证均走 runtime（Rust 为回退）
 - [ ] 生产签名密钥轮换、远程目录和自动回滚
-- [ ] 把雨课堂迁移为第一个外部适配器包
+- [ ] 已安装适配器作为账号入口的完整 UI（当前按 adapter_id 自动选择最新 sequence）
 - [ ] 任务叶子深链（减少从课程页再跳转）
 - [ ] macOS 签名/公证与 Linux Wayland 适配
 
