@@ -1,5 +1,8 @@
 # 课业倒计时 / StudyDeadline
 
+[![CI](https://github.com/DongGuZhengHuaJi/study-deadline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DongGuZhengHuaJi/study-deadline/actions/workflows/ci.yml)
+[![Release](https://github.com/DongGuZhengHuaJi/study-deadline/actions/workflows/release.yml/badge.svg)](https://github.com/DongGuZhengHuaJi/study-deadline/actions/workflows/release.yml)
+
 A lightweight, cross-platform desktop floating window for tracking study deadlines.
 
 轻量桌面学习任务悬浮窗：登录雨课堂，定时只读拉取当前学期的作业/考试截止时间，
@@ -22,6 +25,7 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 | 雨课堂适配器 | 当前为内置 Rust 适配器 |
 | 外部 SDK / 签名热更新 | 规范已编写，运行时尚未实现，见 [适配器 SDK 规范](docs/adapter-sdk.md) |
 | 任务点击 | 使用系统浏览器打开课程详情；不注入/共享系统浏览器 Cookie |
+| CI / CD | GitHub Actions 覆盖 Linux/Windows/macOS 检查与安装包构建，见 [CI/CD](docs/ci-cd.md) |
 
 ## 功能
 
@@ -84,8 +88,19 @@ sudo apt-get install -y ./src-tauri/target/release/bundle/deb/StudyDeadline_0.1.
 
 ### Windows / macOS
 
-代码和 Tauri 配置保持跨平台，但尚未提供验证过的安装包。Windows/macOS 构建必须在
-对应系统的 runner 或实机上完成，不能把 Linux 交叉构建作为发布产物。欢迎提交构建验证 PR。
+代码和 Tauri 配置保持跨平台，但尚未在 Windows/macOS 实机完成验收。
+`Release` workflow 会在对应 GitHub runner 上构建 NSIS `.exe` 和 `.dmg`，
+产物当前**未代码签名**：macOS Gatekeeper 和 Windows SmartScreen 会提示。
+
+发布由 `v*` tag 触发：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+也可以手动运行 `Release` workflow，只构建并保留 Actions artifacts，不创建公开 Release。
+详见 [CI/CD 文档](docs/ci-cd.md)。
 
 ## 使用说明
 
@@ -161,7 +176,9 @@ Linux 数据位置：
 - [x] 雨课堂内置适配器（课程、作业、考试、截止时间）
 - [x] 托盘、倒计时、设置、加密会话、日志
 - [x] Linux deb 发布构建
-- [ ] Windows 实机构建与通知/开机启动验收
+- [x] GitHub Actions CI（Linux/Windows/macOS 检查）
+- [x] GitHub Actions CD（Linux deb / Windows NSIS / macOS DMG；不签名）
+- [ ] Windows 实机通知/开机启动验收
 - [ ] 外部适配器 SDK：manifest、权限、QuickJS 受控运行时
 - [ ] 签名包安装、版本兼容、回滚和远程目录
 - [ ] 任务叶子深链（减少从课程页再跳转）
@@ -173,6 +190,7 @@ Linux 数据位置：
 - [适配器 SDK 规范（含现状与路线图）](docs/adapter-sdk.md)
 - [架构说明](docs/architecture.md)
 - [Phase 0 验证记录](docs/phase0-findings.md)
+- [CI/CD 与发布流程](docs/ci-cd.md)
 - [参与贡献](CONTRIBUTING.md)
 - [安全政策](SECURITY.md)
 
