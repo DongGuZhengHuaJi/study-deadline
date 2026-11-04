@@ -108,6 +108,7 @@ pub fn run() {
             commands::bootstrap,
             commands::list_adapters,
             commands::install_adapter_package,
+            commands::check_adapter_updates,
             commands::run_adapter_smoke,
             commands::open_login,
             commands::close_login,

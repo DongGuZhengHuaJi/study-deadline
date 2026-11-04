@@ -1,4 +1,4 @@
-use crate::adapters::{self, manifest::AdapterInfo, AdapterSmokeResult};
+use crate::adapters::{self, catalog::UpdateReport, manifest::AdapterInfo, AdapterSmokeResult};
 use crate::models::{Dashboard, PlatformInfo, Session, Settings};
 use crate::refresh;
 use crate::state::{AppState, PendingLogin};
@@ -49,6 +49,16 @@ pub async fn install_adapter_package(
     })
     .await
     .map_err(|error| format!("安装适配器线程失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn check_adapter_updates(app: AppHandle) -> Result<UpdateReport, String> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        adapters::catalog::check_and_install(&handle)
+    })
+    .await
+    .map_err(|error| format!("检查适配器更新线程失败: {error}"))?
 }
 
 #[tauri::command]

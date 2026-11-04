@@ -68,6 +68,11 @@
     task_count: number;
     task_titles: string[];
   };
+  type AdapterUpdateReport = {
+    installed: AdapterInfo[];
+    up_to_date: number;
+    catalog_url: string;
+  };
   type Dashboard = {
     tasks: Task[];
     accounts: Account[];
@@ -499,6 +504,26 @@
     }
   }
 
+  async function checkAdapterUpdates() {
+    if (sdkBusy) return;
+    sdkBusy = true;
+    sdkError = "";
+    sdkInstallMessage = "";
+    try {
+      const report = await invoke<AdapterUpdateReport>("check_adapter_updates");
+      sdkInstallMessage =
+        report.installed.length > 0
+          ? `已安装更新：${report.installed.map((adapter) => `${adapter.name} v${adapter.version}`).join("、")}`
+          : `远程适配器已是最新（${report.up_to_date} 个）`;
+      await loadAdapters();
+      await loadDashboard();
+    } catch (error) {
+      sdkError = `检查适配器更新失败: ${String(error)}`;
+    } finally {
+      sdkBusy = false;
+    }
+  }
+
   async function installAdapterFile(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
@@ -848,9 +873,9 @@
           <section class="settings-card full">
             <h2>适配器 SDK（运行时预览）</h2>
             <div class="account-meta">
-              已接入 QuickJS 受控运行时、manifest 加载和本地 Ed25519 签名安装。雨课堂与 mock
-              现在都由 SDK runtime 执行，内置 Rust 适配器作为回退。当前内置公钥为开发密钥；
-              远程热更新和密钥轮换尚未完成。
+              已接入 QuickJS 受控运行时、manifest 加载、本地 Ed25519 签名安装和远程签名 catalog。
+              雨课堂与 mock 现在都由 SDK runtime 执行，内置 Rust 适配器作为回退。当前内置公钥为
+              开发密钥；生产密钥轮换尚未完成。
             </div>
             <div style="display:grid; gap:6px; margin-top:10px;">
               {#each adapters as adapter (adapter.id)}
@@ -871,6 +896,9 @@
               <button class="ghost" disabled={sdkBusy} onclick={runSdkSmoke}>
                 {sdkBusy ? "运行中…" : "运行 mock 自检"}
               </button>
+              <button class="ghost" disabled={sdkBusy} onclick={checkAdapterUpdates}
+                >检查并安装远程更新</button
+              >
               <button
                 class="ghost"
                 disabled={sdkBusy}

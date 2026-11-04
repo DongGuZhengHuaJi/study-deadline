@@ -23,7 +23,7 @@ A lightweight, cross-platform desktop floating window for tracking study deadlin
 | Windows 10/11 | 用户已完成实机验收（NSIS 安装版登录、拉取、托盘等）；签名/正式发布仍待办 |
 | macOS | 路线图；需要 Apple 签名/公证 |
 | 雨课堂适配器 | 内置 QuickJS 适配器；Rust 实现保留为回退 |
-| 适配器 SDK | QuickJS 运行时、雨课堂与 mock 适配器、本地 Ed25519 签名安装已实现（开发公钥）；远程热更新、生产密钥轮换待完成，见 [SDK 规范](docs/adapter-sdk.md) |
+| 适配器 SDK | QuickJS 运行时、雨课堂与 mock 适配器、本地 Ed25519 签名安装、远程签名 catalog 更新已实现（开发公钥）；生产密钥轮换/回滚待完成，见 [SDK 规范](docs/adapter-sdk.md) |
 | 任务点击 | 使用系统浏览器打开课程详情；不注入/共享系统浏览器 Cookie |
 | 多账号/平台筛选 | 已实现多账号聚合刷新和按平台筛选；真实登录平台目前仍只有雨课堂 |
 | CI / CD | GitHub Actions 覆盖 Linux/Windows/macOS 检查与安装包构建，见 [CI/CD](docs/ci-cd.md) |
@@ -198,9 +198,10 @@ Linux 数据位置：
 - [x] Windows 实机验收（用户）
 - [x] 适配器 SDK 运行时（QuickJS + manifest + mock 自检）
 - [x] 本地 Ed25519 签名适配器安装（开发公钥）
+- [x] 远程签名 catalog 检查并安装更新（当前使用开发公钥）
 - [x] 雨课堂迁移到 QuickJS 适配器；定时刷新和登录验证均走 runtime（Rust 为回退）
 - [x] 多账号聚合刷新、账号管理、全部/按平台筛选
-- [ ] 生产签名密钥轮换、远程目录和自动回滚
+- [ ] 生产签名密钥轮换和自动回滚
 - [ ] 适配器 manifest 驱动的平台添加/登录 UI（当前只有雨课堂登录入口）
 - [ ] 任务叶子深链（减少从课程页再跳转）
 - [ ] macOS 签名/公证与 Linux Wayland 适配

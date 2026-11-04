@@ -39,7 +39,7 @@ pub fn installed_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn trusted_key(key_id: &str) -> Result<VerifyingKey, String> {
+pub(crate) fn trusted_key(key_id: &str) -> Result<VerifyingKey, String> {
     let (_, encoded) = TRUSTED_KEYS
         .iter()
         .find(|(id, _)| *id == key_id)
