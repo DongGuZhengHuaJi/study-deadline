@@ -1,0 +1,12 @@
+{
+  "name": "study-deadline",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "pnpm --filter @study-deadline/desktop tauri dev",
+    "build": "pnpm --filter @study-deadline/desktop tauri build",
+    "check": "pnpm --filter @study-deadline/desktop check",
+    "tauri": "pnpm --filter @study-deadline/desktop tauri"
+  }
+}

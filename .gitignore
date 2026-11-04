@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+target/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Local data, captures, signing keys and credentials
+data/
+captures/
+*.key
+*.pem
+signing/
+
+# Throwaway Phase 0 spike
+phase0-spike/
