@@ -1,3 +1,4 @@
+pub mod install;
 pub mod manifest;
 pub mod runtime;
 
@@ -24,6 +25,20 @@ pub fn list_builtin(app: &AppHandle) -> Vec<AdapterInfo> {
     adapter_root(app)
         .map(|root| list_adapter_dirs(&root, "builtin"))
         .unwrap_or_default()
+}
+
+pub fn list_all(app: &AppHandle) -> Vec<AdapterInfo> {
+    let mut adapters = list_builtin(app);
+    if let Ok(root) = install::installed_root(app) {
+        adapters.extend(list_adapter_dirs(&root, "installed"));
+    }
+    adapters.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.version.cmp(&right.version))
+            .then_with(|| left.source.cmp(&right.source))
+    });
+    adapters
 }
 
 pub fn load_mock(app: &AppHandle) -> Result<LoadedAdapter, String> {

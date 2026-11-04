@@ -2,11 +2,12 @@
 
 > **重要状态说明（2026-11-04）**
 >
-> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、mock 适配器和设置页自检**；
-> 雨课堂仍然走内置 Rust 适配器。**签名安装器、远程目录和雨课堂迁移尚未完成**。
+> 当前 `v0.1.0` 已接入 **QuickJS 受控运行时、manifest 校验、mock 适配器、设置页自检
+> 和本地 Ed25519 签名包安装（开发公钥）**；雨课堂仍然走内置 Rust 适配器。
+> **远程目录、自动更新、生产密钥轮换和雨课堂迁移尚未完成**。
 >
-> 本文既是当前边界的说明，也是后续 `v1` SDK 的目标契约。下面是目标 API；示例中的
-> 签名/远程安装能力尚未启用，请不要当成当前可安装的第三方插件 API。
+> 本文既是当前边界的说明，也是后续 `v1` SDK 的目标契约。下面的远程/自动更新能力
+> 尚未启用；本地签名安装已经可用。
 
 ## 1. 目标
 
@@ -24,8 +25,8 @@
 | 适配器位置 | 雨课堂：`yuketang.rs` 内置；mock：`adapters/mock` JS 包 | 所有平台独立签名包 |
 | 添加平台 | 雨课堂仍改 Rust；mock 已可独立加载 | 编写适配器包、安装 |
 | 运行时 | 雨课堂 Rust；mock QuickJS | 全部平台 QuickJS 受控运行时 |
-| 签名 | 无 | Ed25519 包签名 + 校验 |
-| 热更新 | 无 | 签名目录 + 本地/远程安装 |
+| 签名 | 本地 Ed25519 校验（开发公钥） | Ed25519 包签名 + 生产密钥 |
+| 热更新 | 本地 `.sdapkg` 安装 | 签名目录 + 远程安装 + 自动回滚 |
 | UI 隔离 | 无 | 适配器无窗口/文件/进程权限 |
 
 ### 当前已实现的最小闭环
@@ -35,10 +36,13 @@
 - `src-tauri/src/adapters/runtime.rs` 负责 QuickJS 执行、HTTP/session/log/config 受控 API、
   任务字段/URL 校验和归一化；
 - 设置页的“适配器 SDK（运行时预览）”可运行 mock 自检；
-- 8 个 Rust 单测覆盖 manifest、URL 白名单、cookie 解析和 mock 执行。
+- `src-tauri/src/adapters/install.rs` 实现 Ed25519 签名校验、版本化安装和降级阻断；
+- `scripts/adapter-keygen.mjs` / `scripts/adapter-pack.mjs` 可生成密钥并打包 `.sdapkg`；
+- 15 个 Rust 单测覆盖 manifest、URL 白名单、cookie 解析、签名校验、防篡改和安装。
 
-当前运行时只加载内置包，API 仍需在雨课堂迁移时补齐真实 HTTP/CSRF 场景。
-雨课堂内置适配器与 mock 都遵守统一任务模型和只读边界。
+当前运行时只加载内置包；通过设置页安装的包会存到应用数据目录，但尚未作为账号适配器
+自动启用。真实 HTTP/CSRF 场景仍需在雨课堂迁移时补齐。雨课堂内置适配器与 mock
+都遵守统一任务模型和只读边界。
 
 ## 3. 总体架构
 
@@ -310,7 +314,26 @@ adapter-id-1.0.0.zip
 - 公钥内置应用；支持多公钥轮换；
 - 生产模式只加载签名包；debug 构建才允许显式 `--adapter-dev-dir`。
 
-> 当前 v0.1.0 尚未实现以上签名/安装器，见本文件顶部状态说明。
+本地实现状态：
+
+- 已实现 Ed25519 签名校验、`.sdapkg` JSON 包、版本化安装、重复拒绝和 sequence 降级阻断；
+- 当前内置 `dev-2026` 开发公钥；
+- 尚未实现远程目录、自动更新、密钥轮换 UI 和生产密钥发布流程。
+
+### 本地签名快速开始
+
+```bash
+# 1. 生成开发密钥（私钥写入 signing/，已 gitignore）
+node scripts/adapter-keygen.mjs dev-2026 signing/adapter-dev-key.json
+
+# 2. 打包一个适配器；manifest 必须包含 keyId 和 sequence
+node scripts/adapter-pack.mjs adapters/mock signing/adapter-dev-key.json /tmp/mock.sdapkg
+
+# 3. 在应用设置 → 适配器 SDK → 安装本地签名适配器，选择 /tmp/mock.sdapkg
+```
+
+仓库中的 `adapters/mock/mock-0.1.0.sdapkg` 是用当前开发公钥签名的测试包，供安装回归使用。
+发布前请替换 `TRUSTED_KEYS` 中的开发公钥并重新构建应用。
 
 ## 10. 开发与测试工作流（目标）
 

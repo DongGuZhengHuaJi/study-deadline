@@ -105,8 +105,13 @@ impl AdapterManifest {
         if self.name.trim().is_empty() || self.name.len() > 120 {
             return Err("适配器 name 为空或过长".into());
         }
-        if self.version.trim().is_empty() || self.version.len() > 64 {
-            return Err("适配器 version 为空或过长".into());
+        if self.version.trim().is_empty()
+            || self.version.len() > 64
+            || !self.version.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-' || byte == b'+'
+            })
+        {
+            return Err("适配器 version 为空、过长或包含路径字符".into());
         }
         if self.api_version != CURRENT_API_VERSION {
             return Err(format!(

@@ -21,7 +21,20 @@ pub async fn bootstrap(state: State<'_, AppState>) -> Result<Dashboard, String> 
 
 #[tauri::command]
 pub async fn list_adapters(app: AppHandle) -> Result<Vec<AdapterInfo>, String> {
-    Ok(adapters::list_builtin(&app))
+    Ok(adapters::list_all(&app))
+}
+
+#[tauri::command]
+pub async fn install_adapter_package(
+    app: AppHandle,
+    contents: String,
+) -> Result<AdapterInfo, String> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        adapters::install::install_package(&handle, &contents)
+    })
+    .await
+    .map_err(|error| format!("安装适配器线程失败: {error}"))?
 }
 
 #[tauri::command]

@@ -90,6 +90,8 @@
   let sdkBusy = $state(false);
   let sdkError = $state("");
   let sdkSmoke = $state<AdapterSmokeResult | null>(null);
+  let sdkInstallMessage = $state("");
+  let adapterFileInput = $state<HTMLInputElement | null>(null);
   let initialized = false;
 
   const kindLabels: Record<string, string> = {
@@ -410,6 +412,32 @@
       sdkError = `SDK 自检失败: ${String(error)}`;
     } finally {
       sdkBusy = false;
+    }
+  }
+
+  async function installAdapterFile(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    sdkBusy = true;
+    sdkError = "";
+    sdkSmoke = null;
+    sdkInstallMessage = "";
+    try {
+      if (file.size > 2_000_000) {
+        throw new Error("适配器包超过 2 MB");
+      }
+      const contents = await file.text();
+      const info = await invoke<AdapterInfo>("install_adapter_package", {
+        contents,
+      });
+      sdkInstallMessage = `已安装 ${info.name} v${info.version}（${info.source}）`;
+      await loadAdapters();
+    } catch (error) {
+      sdkError = `安装适配器失败: ${String(error)}`;
+    } finally {
+      sdkBusy = false;
+      input.value = "";
     }
   }
 
@@ -741,8 +769,8 @@
           <section class="settings-card full">
             <h2>适配器 SDK（运行时预览）</h2>
             <div class="account-meta">
-              当前版本已接入 QuickJS 受控运行时和 manifest 加载。雨课堂仍走内置 Rust 适配器；
-              签名安装与远程热更新尚未启用。
+              已接入 QuickJS 受控运行时、manifest 加载和本地 Ed25519 签名安装。当前内置公钥
+              为开发密钥；远程热更新、密钥轮换和雨课堂迁移尚未完成。雨课堂仍走内置 Rust 适配器。
             </div>
             <div style="display:grid; gap:6px; margin-top:10px;">
               {#each adapters as adapter (adapter.id)}
@@ -763,12 +791,30 @@
               <button class="ghost" disabled={sdkBusy} onclick={runSdkSmoke}>
                 {sdkBusy ? "运行中…" : "运行 mock 自检"}
               </button>
+              <button
+                class="ghost"
+                disabled={sdkBusy}
+                onclick={() => adapterFileInput?.click()}
+                >安装本地签名适配器</button
+              >
               <button class="ghost" disabled={sdkBusy} onclick={loadAdapters}
                 >重新扫描</button
               >
+              <input
+                bind:this={adapterFileInput}
+                type="file"
+                accept=".sdapkg,application/json"
+                hidden
+                onchange={installAdapterFile}
+              />
             </div>
             {#if sdkError}
               <div class="banner error" style="margin:10px 0 0;">{sdkError}</div>
+            {/if}
+            {#if sdkInstallMessage}
+              <div class="banner success" style="margin:10px 0 0;">
+                {sdkInstallMessage}
+              </div>
             {/if}
             {#if sdkSmoke}
               <div class="banner" style="margin:10px 0 0;">

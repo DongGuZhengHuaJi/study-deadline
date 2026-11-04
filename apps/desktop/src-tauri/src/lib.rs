@@ -107,6 +107,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::list_adapters,
+            commands::install_adapter_package,
             commands::run_adapter_smoke,
             commands::open_login,
             commands::close_login,

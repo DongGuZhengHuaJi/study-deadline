@@ -14,5 +14,7 @@
     "loginUrl": "https://example.invalid/login",
     "allowedOrigins": [],
     "sessionCookies": []
-  }
+  },
+  "keyId": "dev-2026",
+  "sequence": 1
 }

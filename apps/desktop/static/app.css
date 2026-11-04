@@ -249,6 +249,12 @@ select {
   border: 1px solid #f0ddbc;
 }
 
+.banner.success {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid #c9e1d9;
+}
+
 .banner.needs-login {
   display: flex;
   align-items: flex-start;
